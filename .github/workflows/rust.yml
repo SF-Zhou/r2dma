@@ -37,7 +37,7 @@ jobs:
       - name: Test
         run: |
           sudo prlimit --pid $$ -l=unlimited && ulimit -a
-          sudo apt install -y libibverbs-dev librdmacm-dev ibverbs-utils
+          sudo apt install -y pkg-config libibverbs-dev ibverbs-utils
           ibv_devinfo -d rxe_0 -v
           cargo install cargo-llvm-cov
           cargo llvm-cov --lcov --output-path lcov.info
