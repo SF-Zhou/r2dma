@@ -1,14 +1,10 @@
 use crate::ibv::*;
 use crate::*;
 use r2dma_sys::*;
-use std::{
-    borrow::Cow,
-    sync::{mpsc, Arc},
-};
+use std::{borrow::Cow, sync::Arc};
 
 #[derive(Debug)]
 pub struct Card {
-    pub event_loop: Arc<EventLoop>,
     pub protection_domain: ProtectionDomain,
     pub context: Context,
     pub port_attr: ibv_port_attr,
@@ -36,19 +32,7 @@ impl Card {
         let port_attr = context.query_port(1)?;
         let gid = context.query_gid(1, 1)?;
 
-        let comp_channel = CompChannel::new(unsafe {
-            let channel = ibv_create_comp_channel(context.as_mut_ptr());
-            if channel.is_null() {
-                return Err(Error::with_errno(ErrorKind::IBCreateCompChannelFail));
-            }
-            channel
-        });
-        comp_channel.set_nonblock()?;
-
-        let event_loop = EventLoop::new(comp_channel).unwrap();
-
         Ok(Arc::new(Self {
-            event_loop,
             protection_domain,
             context,
             port_attr,
@@ -60,24 +44,18 @@ impl Card {
         self.context.device().name()
     }
 
-    pub fn start_comp_channel_consumer(self: &Arc<Self>) {
-        let (_, receiver) = mpsc::sync_channel(1024);
-        let event_loop = self.event_loop.clone();
-        std::thread::spawn(move || {
-            event_loop.run(receiver);
-        });
-    }
+    // pub fn start_comp_channel_consumer(self: &Arc<Self>) {
+    //     let (_, receiver) = mpsc::sync_channel(1024);
+    //     let event_loop = self.event_loop.clone();
+    //     std::thread::spawn(move || {
+    //         event_loop.run(receiver);
+    //     });
+    // }
 
-    pub fn stop_and_join(&self) -> Result<()> {
-        self.event_loop.stop()?;
-        Ok(())
-    }
-}
-
-impl Drop for Card {
-    fn drop(&mut self) {
-        let _ = self.stop_and_join();
-    }
+    // pub fn stop_and_join(&self) -> Result<()> {
+    //     self.event_loop.stop()?;
+    //     Ok(())
+    // }
 }
 
 #[cfg(test)]

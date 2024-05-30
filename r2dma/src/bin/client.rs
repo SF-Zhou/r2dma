@@ -12,17 +12,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "0.0.0.0:9999".to_string());
 
     let cards = Cards::open().unwrap();
-    let card = cards.get(None).unwrap();
-    println!("{:#?}", Socket::create(&card).unwrap());
-    let send_socket = Socket::create(&card).unwrap();
+    let event_loop = cards.event_loops.first().unwrap();
+    println!("{:#?}", Socket::create(event_loop).unwrap());
+    let send_socket = Socket::create(event_loop).unwrap();
     println!("recv socket: {:#?}", send_socket);
     let local_endpoint = send_socket.endpoint();
     println!("endpoint: {:#?}", local_endpoint);
     let bytes = local_endpoint.serialize::<derse::DownwardBytes>().unwrap();
     println!("{:#?}", bytes.len());
     let len = bytes.len();
-
-    card.start_comp_channel_consumer();
 
     let mut socket = TcpStream::connect(addr).await?;
     socket.write_all(bytes.as_ref()).await?;
@@ -39,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut send_memory = Buffer::new(&card, 1048576).unwrap();
+    let mut send_memory = Buffer::new(&cards.cards, 1048576).unwrap();
     println!("send memory: {:#?}", send_memory);
     send_memory.as_mut().fill(0x23);
 

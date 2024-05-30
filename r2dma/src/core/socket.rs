@@ -7,20 +7,21 @@ use std::sync::Arc;
 pub struct Socket {
     queue_pair: QueuePair,
     comp_queue: CompQueue,
-    card: Arc<Card>,
+    event_loop: Arc<EventLoop>,
     events: AtomicU32,
 }
 
 impl Socket {
-    pub fn create(card: &Arc<Card>) -> Result<Arc<Self>> {
+    pub fn create(event_loop: &Arc<EventLoop>) -> Result<Arc<Self>> {
         let cqe = 32;
 
+        let card = &event_loop.card;
         let (comp_queue, cq_context) = unsafe {
             let comp_queue = ibv_create_cq(
                 card.context.as_mut_ptr(),
                 cqe as _,
                 std::ptr::null_mut(),
-                card.event_loop.comp_channel.as_mut_ptr(),
+                event_loop.comp_channel.as_mut_ptr(),
                 0,
             );
             if comp_queue.is_null() {
@@ -62,7 +63,7 @@ impl Socket {
         let arc = Arc::new(Self {
             queue_pair,
             comp_queue,
-            card: card.clone(),
+            event_loop: event_loop.clone(),
             events: Default::default(),
         });
 
@@ -86,8 +87,8 @@ impl Socket {
     pub fn endpoint(&self) -> Endpoint {
         Endpoint {
             qp_num: self.queue_pair.qp_num,
-            lid: self.card.port_attr.lid,
-            gid: self.card.gid,
+            lid: self.event_loop.card.port_attr.lid,
+            gid: self.event_loop.card.gid,
         }
     }
 
@@ -210,18 +211,15 @@ mod tests {
     #[tokio::test]
     async fn test_ib_socket() {
         tracing_subscriber::fmt()
-            .with_max_level(tracing::Level::INFO)
+            .with_max_level(tracing::Level::WARN)
             .init();
 
         let cards = Cards::open().unwrap();
-        let card = cards.get(None).unwrap();
-        println!("{:#?}", Socket::create(&card).unwrap());
+        let event_loop = cards.event_loops.first().unwrap();
 
-        card.start_comp_channel_consumer();
-
-        let send_socket = Socket::create(&card).unwrap();
+        let send_socket = Socket::create(event_loop).unwrap();
         println!("send socket: {:#?}", send_socket);
-        let recv_socket = Socket::create(&card).unwrap();
+        let recv_socket = Socket::create(event_loop).unwrap();
         println!("recv socket: {:#?}", recv_socket);
 
         let send_endpoint = send_socket.endpoint();
@@ -232,10 +230,10 @@ mod tests {
         send_socket.ready(&recv_endpoint).unwrap();
         recv_socket.ready(&send_endpoint).unwrap();
 
-        let mut send_memory = Buffer::new(&card, 1048576).unwrap();
+        let mut send_memory = Buffer::new(&cards.cards, 1048576).unwrap();
         println!("send memory: {:#?}", send_memory);
         send_memory.as_mut().fill(0x23);
-        let mut recv_memory = Buffer::new(&card, 1048576).unwrap();
+        let mut recv_memory = Buffer::new(&cards.cards, 1048576).unwrap();
         println!("recv memory: {:#?}", recv_memory);
         recv_memory.as_mut().fill(0);
         assert_ne!(send_memory.as_ref(), recv_memory.as_ref());

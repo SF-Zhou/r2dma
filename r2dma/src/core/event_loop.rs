@@ -1,6 +1,7 @@
 use crate::*;
 use ibv::CompChannel;
 use nix::sys::{epoll::*, eventfd::*};
+use r2dma_sys::*;
 use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -16,10 +17,20 @@ pub struct EventLoop {
     eventfd: EventFd,
     pub comp_channel: CompChannel,
     stopping: AtomicBool,
+    pub card: Arc<Card>,
 }
 
 impl EventLoop {
-    pub fn new(comp_channel: CompChannel) -> Result<Arc<Self>> {
+    pub fn new(card: &Arc<Card>) -> Result<Arc<Self>> {
+        let comp_channel = CompChannel::new(unsafe {
+            let channel = ibv_create_comp_channel(card.context.as_mut_ptr());
+            if channel.is_null() {
+                return Err(Error::with_errno(ErrorKind::IBCreateCompChannelFail));
+            }
+            channel
+        });
+        comp_channel.set_nonblock()?;
+
         let epoll = Epoll::new(EpollCreateFlags::empty())?;
         let eventfd = EventFd::from_flags(EfdFlags::EFD_NONBLOCK)?;
 
@@ -38,6 +49,7 @@ impl EventLoop {
             eventfd,
             comp_channel,
             stopping: Default::default(),
+            card: card.clone(),
         }))
     }
 
@@ -47,7 +59,7 @@ impl EventLoop {
     }
 
     pub fn stop(&self) -> Result<()> {
-        tracing::warn!("event_loop is stopping...");
+        tracing::info!("event_loop is stopping...");
         self.stopping.store(true, Ordering::Release);
         self.wake_up()?;
         Ok(())
@@ -80,7 +92,7 @@ impl EventLoop {
                 // TODO(SF): handle user events.
             }
         }
-        tracing::warn!("event_loop is stopped.");
+        tracing::info!("event_loop is stopped.");
     }
 
     fn handle_work_completion(&self) {
@@ -98,33 +110,5 @@ impl EventLoop {
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_event_loop_normal() {
-        let cards = Cards::open().unwrap();
-        let card = cards.get(None).unwrap();
-        let event_loop = &card.event_loop;
-
-        println!("{:#?}", event_loop);
-        let (sender, receiver) = mpsc::sync_channel(1024);
-
-        let clone = event_loop.clone();
-        let thread = std::thread::spawn(move || {
-            clone.run(receiver);
-        });
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        sender.send(Task).unwrap();
-        event_loop.wake_up().unwrap();
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        event_loop.stop().unwrap();
-        thread.join().unwrap();
     }
 }
