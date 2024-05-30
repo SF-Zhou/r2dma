@@ -1,44 +1,26 @@
 use crate::*;
 use r2dma_sys::*;
 
-use std::{
-    os::fd::{AsRawFd, RawFd},
-    sync::Arc,
-};
+use std::{os::fd::BorrowedFd, sync::Arc};
 
 pub type CompChannel = Wrapper<ibv_comp_channel>;
 
 impl CompChannel {
-    pub fn fd(&self) -> RawFd {
-        self.fd.as_raw_fd()
+    pub fn fd(&self) -> BorrowedFd {
+        unsafe { BorrowedFd::borrow_raw(self.fd) }
     }
 
     pub fn set_nonblock(&self) -> Result<()> {
-        let fd = self.fd();
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        let flags = unsafe { libc::fcntl(self.fd, libc::F_GETFL) };
         if flags == -1 {
             return Err(Error::with_errno(ErrorKind::SetNonBlockFail));
         }
 
-        let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+        let ret = unsafe { libc::fcntl(self.fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
         if ret == 0 {
             Ok(())
         } else {
             Err(Error::with_errno(ErrorKind::SetNonBlockFail))
-        }
-    }
-
-    pub fn wait(&self) -> Result<u32> {
-        let mut pollfd = libc::pollfd {
-            fd: self.fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let ret = unsafe { libc::poll(&mut pollfd, 1, 100) };
-        if ret >= 0 {
-            Ok(ret as _)
-        } else {
-            Err(Error::with_errno(ErrorKind::PollCompChannelFailed))
         }
     }
 

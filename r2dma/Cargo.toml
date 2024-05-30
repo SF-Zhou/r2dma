@@ -12,6 +12,7 @@ license.workspace = true
 derse = "0"
 lazy_static = "1"
 libc = "0"
+nix = { version = "0", features = ["event"] }
 r2dma-sys = { version = "0", path = "../r2dma-sys" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0"

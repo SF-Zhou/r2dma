@@ -20,7 +20,7 @@ impl Socket {
                 card.context.as_mut_ptr(),
                 cqe as _,
                 std::ptr::null_mut(),
-                card.comp_channel.as_mut_ptr(),
+                card.event_loop.comp_channel.as_mut_ptr(),
                 0,
             );
             if comp_queue.is_null() {
