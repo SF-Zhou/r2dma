@@ -1,0 +1,11 @@
+[workspace]
+members = ["r2dma", "r2dma-sys"]
+resolver = "2"
+
+[workspace.package]
+authors = ["SF-Zhou <sfzhou.scut@gmail.com>"]
+edition = "2021"
+homepage = "https://crates.io/crates/r2dma"
+repository = "https://crates.io/crates/r2dma"
+description = "A Rust RDMA library."
+license = "MIT OR Apache-2.0"
