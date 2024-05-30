@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorKind {
+    IOError,
     IBGetDeviceListFail,
     IBDeviceNotFound,
     IBOpenDeviceFail,
@@ -37,6 +38,12 @@ impl Error {
 
     pub fn with_msg(kind: ErrorKind, msg: String) -> Self {
         Self(kind, Some(msg))
+    }
+}
+
+impl From<nix::Error> for Error {
+    fn from(error: nix::Error) -> Self {
+        Self(ErrorKind::IOError, Some(format!("errno: {}", error)))
     }
 }
 

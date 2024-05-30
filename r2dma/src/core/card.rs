@@ -3,21 +3,16 @@ use crate::*;
 use r2dma_sys::*;
 use std::{
     borrow::Cow,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{mpsc, Arc},
 };
 
 #[derive(Debug)]
 pub struct Card {
-    pub comp_channel: CompChannel,
+    pub event_loop: Arc<EventLoop>,
     pub protection_domain: ProtectionDomain,
     pub context: Context,
     pub port_attr: ibv_port_attr,
     pub gid: Gid,
-    pub stopping: AtomicBool,
-    pub thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Card {
@@ -50,14 +45,14 @@ impl Card {
         });
         comp_channel.set_nonblock()?;
 
+        let event_loop = EventLoop::new(comp_channel).unwrap();
+
         Ok(Arc::new(Self {
-            comp_channel,
+            event_loop,
             protection_domain,
             context,
             port_attr,
             gid,
-            stopping: Default::default(),
-            thread: Default::default(),
         }))
     }
 
@@ -66,46 +61,22 @@ impl Card {
     }
 
     pub fn start_comp_channel_consumer(self: &Arc<Self>) {
-        let clone = self.clone();
+        let (_, receiver) = mpsc::sync_channel(1024);
+        let event_loop = self.event_loop.clone();
         std::thread::spawn(move || {
-            while !clone.stopping.load(Ordering::Acquire) {
-                match clone.comp_channel.wait() {
-                    Ok(0) => continue,
-                    Ok(_) => loop {
-                        match clone.comp_channel.poll() {
-                            Ok(None) => break,
-                            Ok(Some(socket)) => {
-                                socket.notify().unwrap();
-                                socket.poll_cq();
-                                let _ = Arc::into_raw(socket);
-                            }
-                            Err(err) => {
-                                tracing::error!("comp channel poll: {:?}", err);
-                                break;
-                            }
-                        }
-                    },
-                    Err(err) => {
-                        tracing::error!("comp channel poll error: {:?}", err)
-                    }
-                }
-            }
+            event_loop.run(receiver);
         });
     }
 
-    pub fn stop_and_join(&self) {
-        self.stopping.store(true, Ordering::Release);
-
-        let mut thread = self.thread.lock().unwrap();
-        if let Some(t) = thread.take() {
-            t.join().unwrap();
-        }
+    pub fn stop_and_join(&self) -> Result<()> {
+        self.event_loop.stop()?;
+        Ok(())
     }
 }
 
 impl Drop for Card {
     fn drop(&mut self) {
-        self.stop_and_join();
+        let _ = self.stop_and_join();
     }
 }
 
