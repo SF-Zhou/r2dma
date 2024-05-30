@@ -1,38 +1,67 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::{mpsc, Arc};
 
 use crate::*;
 
 #[derive(Debug)]
 pub struct Cards {
-    cards: HashMap<String, Arc<Card>>,
+    pub event_loops: Vec<Arc<EventLoop>>,
+    pub cards: Arc<Vec<Arc<Card>>>,
+    pub threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Cards {
-    pub fn open() -> Result<Arc<Self>> {
-        let mut cards = HashMap::new();
+    pub fn open() -> Result<Self> {
+        let mut cards = vec![];
 
         let device_list = ibv::DeviceList::cached();
         for device in device_list.as_ref() {
             let card = Card::open(device)?;
-            cards.insert(card.name().to_string(), card);
+            cards.push(card);
         }
 
-        Ok(Arc::new(Self { cards }))
+        let mut event_loops = vec![];
+        for card in &cards {
+            event_loops.push(EventLoop::new(card)?);
+        }
+
+        let mut threads = vec![];
+        for event_loop in &event_loops {
+            let event_loop = event_loop.clone();
+            threads.push(std::thread::spawn(move || {
+                let (_, receiver) = mpsc::sync_channel(1024);
+                event_loop.run(receiver);
+            }))
+        }
+
+        let cards = Arc::new(cards);
+
+        Ok(Self {
+            cards,
+            event_loops,
+            threads,
+        })
     }
 
-    pub fn get(&self, name: Option<&str>) -> Result<Arc<Card>> {
-        match name {
-            Some(name) => self
-                .cards
-                .get(name)
-                .cloned()
-                .ok_or(Error::new(ErrorKind::IBDeviceNotFound)),
-            None => self
-                .cards
-                .iter()
-                .next()
-                .map(|p| p.1.clone())
-                .ok_or(Error::new(ErrorKind::IBDeviceNotFound)),
+    pub fn stop_and_join(&mut self) -> Result<()> {
+        for event_loop in &self.event_loops {
+            event_loop.stop()?;
+        }
+
+        for thread in self.threads.drain(..) {
+            thread
+                .join()
+                .map_err(|e| Error::with_msg(ErrorKind::IOError, format!("{:?}", e)))?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for Cards {
+    fn drop(&mut self) {
+        match self.stop_and_join() {
+            Ok(_) => (),
+            Err(err) => tracing::error!("cards stop error: {err}"),
         }
     }
 }
@@ -45,9 +74,5 @@ mod tests {
     fn test_cards() {
         let cards = Cards::open().unwrap();
         println!("{:#?}", cards);
-
-        let card = cards.get(None).unwrap();
-        let _ = cards.get(Some(&card.name())).unwrap();
-        let _ = cards.get(Some("")).unwrap_err();
     }
 }

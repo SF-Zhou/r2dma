@@ -10,7 +10,7 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
-    pub fn new(card: &Arc<Card>, size: usize, count: usize) -> Result<Arc<Self>> {
+    pub fn new(cards: &Arc<Vec<Arc<Card>>>, size: usize, count: usize) -> Result<Arc<Self>> {
         let size = size.next_power_of_two();
         let count = count.next_power_of_two();
 
@@ -21,7 +21,7 @@ impl BufferPool {
         let mut mems = vec![];
         let mut pool = vec![];
         for i in 0..mem_count {
-            let mem = Buffer::new(card, mem_size)?;
+            let mem = Buffer::new(cards, mem_size)?;
             for j in 0..sub_count {
                 pool.push((i as u32, j as u32));
             }
@@ -119,8 +119,7 @@ mod tests {
         let n = 128;
 
         let cards = Cards::open().unwrap();
-        let card = cards.get(None).unwrap();
-        let pool = BufferPool::new(&card, 1 << 20, n).unwrap();
+        let pool = BufferPool::new(&cards.cards, 1 << 20, n).unwrap();
         println!("{:#?}", pool);
 
         for _ in 0..3 {

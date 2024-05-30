@@ -15,17 +15,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Listening on: {}", addr);
 
     let cards = Cards::open().unwrap();
-    let card = cards.get(None).unwrap();
-    println!("{:#?}", Socket::create(&card).unwrap());
-    let recv_socket = Socket::create(&card).unwrap();
+    let event_loop = cards.event_loops.first().unwrap();
+    println!("{:#?}", Socket::create(event_loop).unwrap());
+    let recv_socket = Socket::create(event_loop).unwrap();
     println!("recv socket: {:#?}", recv_socket);
     let local_endpoint = recv_socket.endpoint();
     println!("endpoint: {:#?}", local_endpoint);
     let bytes = local_endpoint.serialize::<derse::DownwardBytes>().unwrap();
     println!("{:#?}", bytes.len());
     let len = bytes.len();
-
-    card.start_comp_channel_consumer();
 
     let (mut socket, _) = listener.accept().await?;
 
@@ -46,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    let mut recv_memory = Buffer::new(&card, 1048576).unwrap();
+    let mut recv_memory = Buffer::new(&cards.cards, 1048576).unwrap();
     println!("recv memory: {:#?}", recv_memory);
     recv_memory.as_mut().fill(0);
 
