@@ -2,15 +2,20 @@ use super::Endpoint;
 use crate::*;
 use r2dma_sys::*;
 
-pub type QueuePair = Wrapper<ibv_qp>;
+pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
+    | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0
+    | ibv_access_flags::IBV_ACCESS_REMOTE_READ.0
+    | ibv_access_flags::IBV_ACCESS_RELAXED_ORDERING.0;
+
+pub type QueuePair = utils::Wrapper<ibv_qp>;
 
 impl QueuePair {
-    pub fn init(&mut self, flag: ibv_access_flags, port_num: u8, pkey_index: u16) -> Result<()> {
+    pub fn init(&mut self, port_num: u8, pkey_index: u16) -> Result<()> {
         let mut attr = ibv_qp_attr {
             qp_state: ibv_qp_state::IBV_QPS_INIT,
             pkey_index,
             port_num,
-            qp_access_flags: flag.0,
+            qp_access_flags: ACCESS_FLAGS,
             ..Default::default()
         };
 
@@ -90,7 +95,7 @@ impl QueuePair {
     }
 }
 
-impl Deleter for ibv_qp {
+impl utils::Deleter for ibv_qp {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         ibv_destroy_qp(ptr)
     }

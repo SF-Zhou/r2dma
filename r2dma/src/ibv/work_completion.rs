@@ -14,8 +14,7 @@ impl WorkCompletion {
     }
 
     pub fn imm(&self) -> Option<u32> {
-        let flags = ibv_wc_flags(self.0.wc_flags);
-        if flags & ibv_wc_flags::IBV_WC_WITH_IMM != ibv_wc_flags(0) {
+        if self.0.wc_flags & ibv_wc_flags::IBV_WC_WITH_IMM.0 != 0 {
             Some(unsafe { self.0.__bindgen_anon_1.imm_data })
         } else {
             None
@@ -41,5 +40,24 @@ impl std::fmt::Debug for WorkCompletion {
             .field("byte_len", &self.0.byte_len)
             .field("wc_flags", &self.0.wc_flags)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_work_completion() {
+        let mut wc = WorkCompletion::default();
+        println!("{:#?}", wc);
+        assert_eq!(wc.result(), Ok(0));
+        assert_eq!(wc.imm(), None);
+
+        wc.0.status = ibv_wc_status::IBV_WC_WR_FLUSH_ERR;
+        assert_eq!(wc.result(), Err(ibv_wc_status::IBV_WC_WR_FLUSH_ERR));
+
+        wc.0.wc_flags = ibv_wc_flags::IBV_WC_WITH_IMM.0;
+        assert_eq!(wc.imm(), Some(0));
     }
 }

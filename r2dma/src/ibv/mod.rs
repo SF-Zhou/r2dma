@@ -19,5 +19,5 @@ pub use endpoint::Endpoint;
 pub use gid::Gid;
 pub use memory_region::MemoryRegion;
 pub use protection_domain::ProtectionDomain;
-pub use queue_pair::QueuePair;
+pub use queue_pair::{QueuePair, ACCESS_FLAGS};
 pub use work_completion::WorkCompletion;

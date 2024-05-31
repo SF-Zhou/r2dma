@@ -10,10 +10,14 @@ license.workspace = true
 
 [dependencies]
 derse = "0"
-lazy_static = "1"
 libc = "0"
 nix = { version = "0", features = ["event"] }
 r2dma-sys = { version = "0", path = "../r2dma-sys" }
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
+toml = "0"
 tracing = "0"
 tracing-subscriber = "0"
+
+[features]
+debug = []

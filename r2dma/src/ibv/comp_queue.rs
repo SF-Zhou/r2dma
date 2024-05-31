@@ -2,10 +2,9 @@ use super::WorkCompletion;
 use crate::*;
 use r2dma_sys::*;
 
-pub type CompQueue = Wrapper<ibv_cq>;
+pub type CompQueue = utils::Wrapper<ibv_cq>;
 
 impl CompQueue {
-    #[allow(dead_code)]
     pub fn poll<'a>(&self, wc: &'a mut [WorkCompletion]) -> Result<&'a [WorkCompletion]> {
         let num_entries = wc.len() as i32;
         let num = unsafe { ibv_poll_cq(self.as_mut_ptr(), num_entries, wc.as_mut_ptr() as _) };
@@ -17,7 +16,7 @@ impl CompQueue {
     }
 }
 
-impl Deleter for ibv_cq {
+impl utils::Deleter for ibv_cq {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         ibv_destroy_cq(ptr)
     }

@@ -1,20 +1,19 @@
 use derse::Serialization;
-use r2dma::{Buffer, Cards, Endpoint, SendRecv, Socket};
+use r2dma::*;
 use std::env;
 use std::error::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> std::result::Result<(), Box<dyn Error>> {
     let addr = env::args()
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:9999".to_string());
 
-    let cards = Cards::open().unwrap();
-    let event_loop = cards.event_loops.first().unwrap();
-    println!("{:#?}", Socket::create(event_loop).unwrap());
-    let send_socket = Socket::create(event_loop).unwrap();
+    let config = Config::default();
+    let manager = Manager::init(&config).unwrap();
+    let send_socket = manager.create_socket().unwrap();
     println!("recv socket: {:#?}", send_socket);
     let local_endpoint = send_socket.endpoint();
     println!("endpoint: {:#?}", local_endpoint);
@@ -37,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-    let mut send_memory = Buffer::new(&cards.cards, 1048576).unwrap();
+    let mut send_memory = manager.allocate_buffer().unwrap();
     println!("send memory: {:#?}", send_memory);
     send_memory.as_mut().fill(0x23);
 

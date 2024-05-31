@@ -1,11 +1,11 @@
 use crate::*;
 use r2dma_sys::*;
 
-pub type ProtectionDomain = Wrapper<ibv_pd>;
+pub type ProtectionDomain = utils::Wrapper<ibv_pd>;
 
 impl ProtectionDomain {}
 
-impl Deleter for ibv_pd {
+impl utils::Deleter for ibv_pd {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         ibv_dealloc_pd(ptr)
     }

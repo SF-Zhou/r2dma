@@ -1,12 +1,12 @@
 use derse::Serialization;
-use r2dma::{Buffer, Cards, Endpoint, SendRecv, Socket};
+use r2dma::*;
 use std::env;
 use std::error::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> std::result::Result<(), Box<dyn Error>> {
     let addr = env::args()
         .nth(1)
         .unwrap_or_else(|| "0.0.0.0:9999".to_string());
@@ -14,10 +14,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(&addr).await?;
     println!("Listening on: {}", addr);
 
-    let cards = Cards::open().unwrap();
-    let event_loop = cards.event_loops.first().unwrap();
-    println!("{:#?}", Socket::create(event_loop).unwrap());
-    let recv_socket = Socket::create(event_loop).unwrap();
+    let config = Config::default();
+    let manager = Manager::init(&config).unwrap();
+    let recv_socket = manager.create_socket().unwrap();
     println!("recv socket: {:#?}", recv_socket);
     let local_endpoint = recv_socket.endpoint();
     println!("endpoint: {:#?}", local_endpoint);
@@ -44,7 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    let mut recv_memory = Buffer::new(&cards.cards, 1048576).unwrap();
+    let mut recv_memory = manager.allocate_buffer().unwrap();
     println!("recv memory: {:#?}", recv_memory);
     recv_memory.as_mut().fill(0);
 

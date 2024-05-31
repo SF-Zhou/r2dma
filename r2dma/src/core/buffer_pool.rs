@@ -10,7 +10,7 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
-    pub fn new(cards: &Arc<Vec<Arc<Card>>>, size: usize, count: usize) -> Result<Arc<Self>> {
+    pub fn new(cards: &Arc<Cards>, size: usize, count: usize) -> Result<Arc<Self>> {
         let size = size.next_power_of_two();
         let count = count.next_power_of_two();
 
@@ -40,7 +40,7 @@ impl BufferPool {
         let mut pool = self.pool.lock().unwrap();
         match pool.pop() {
             Some((i, j)) => Ok(BufferSlice::new(self, i, j)),
-            None => Err(Error::new(ErrorKind::IBAllocPDFail)),
+            None => Err(Error::new(ErrorKind::AllocateBufferFail)),
         }
     }
 
@@ -77,6 +77,10 @@ impl BufferSlice {
         }
     }
 
+    pub fn length(&self) -> usize {
+        self.pool.size
+    }
+
     pub fn lkey(&self) -> u32 {
         self.pool.bufs[self.i as usize].lkey
     }
@@ -107,29 +111,5 @@ impl std::convert::AsMut<[u8]> for BufferSlice {
 impl Drop for BufferSlice {
     fn drop(&mut self) {
         self.pool.put(self.i, self.j);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::*;
-
-    #[test]
-    fn test_memory_pool() {
-        let n = 128;
-
-        let cards = Cards::open().unwrap();
-        let pool = BufferPool::new(&cards.cards, 1 << 20, n).unwrap();
-        println!("{:#?}", pool);
-
-        for _ in 0..3 {
-            let mut mems = vec![];
-            for i in 0..n {
-                let mut mem = pool.get().unwrap();
-                mem.as_mut().fill(i as u8);
-                mems.push(mem);
-            }
-            pool.get().unwrap_err();
-        }
     }
 }

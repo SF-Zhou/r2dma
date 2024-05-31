@@ -1,9 +1,9 @@
 use crate::*;
 use r2dma_sys::*;
 
-use std::{os::fd::BorrowedFd, sync::Arc};
+use std::os::fd::BorrowedFd;
 
-pub type CompChannel = Wrapper<ibv_comp_channel>;
+pub type CompChannel = utils::Wrapper<ibv_comp_channel>;
 
 impl CompChannel {
     pub fn fd(&self) -> BorrowedFd {
@@ -24,7 +24,7 @@ impl CompChannel {
         }
     }
 
-    pub fn poll(&self) -> Result<Option<Arc<Socket>>> {
+    pub fn poll(&self) -> Result<Option<&Socket>> {
         let mut comp_queue: *mut ibv_cq = std::ptr::null_mut();
         let mut cq_context: *mut std::ffi::c_void = std::ptr::null_mut();
         let ret = unsafe { ibv_get_cq_event(self.as_mut_ptr(), &mut comp_queue, &mut cq_context) };
@@ -38,7 +38,7 @@ impl CompChannel {
     }
 }
 
-impl Deleter for ibv_comp_channel {
+impl utils::Deleter for ibv_comp_channel {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         ibv_destroy_comp_channel(ptr)
     }

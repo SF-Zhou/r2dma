@@ -1,10 +1,9 @@
 use super::Device;
 use crate::*;
-use lazy_static::lazy_static;
 use r2dma_sys::*;
 use std::{ffi::c_int, ops::Deref};
 
-pub type DeviceList = Wrapper<[Device]>;
+pub type DeviceList = utils::Wrapper<[Device]>;
 
 impl DeviceList {
     pub fn available() -> Result<Self> {
@@ -21,30 +20,9 @@ impl DeviceList {
             std::ptr::slice_from_raw_parts_mut(arr, num_devices as usize) as _,
         ))
     }
-
-    pub fn cached() -> &'static Self {
-        lazy_static! {
-            static ref LIST: Result<DeviceList> = DeviceList::available();
-        }
-
-        match LIST.deref() {
-            Ok(cached) => cached,
-            Err(error) => panic!("get cached IB device list failed: {}", error),
-        }
-    }
-
-    pub fn get(&self, dev_name: Option<&str>) -> Result<&Device> {
-        match dev_name {
-            Some(name) => self
-                .iter()
-                .find(|d| d.name() == name)
-                .ok_or(Error::new(ErrorKind::IBDeviceNotFound)),
-            None => Ok(self.first().unwrap()),
-        }
-    }
 }
 
-impl Deleter for [Device] {
+impl utils::Deleter for [Device] {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         ibv_free_device_list(ptr as _);
         0
@@ -63,11 +41,7 @@ mod tests {
 
     #[test]
     fn test_device_list() {
-        println!("{:#?}", DeviceList::cached());
-        assert!(!DeviceList::available().unwrap().is_empty());
-
         let list = DeviceList::available().unwrap();
         assert!(!list.is_empty());
-        let _: &Device = list.get(None).unwrap();
     }
 }

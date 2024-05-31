@@ -1,38 +1,31 @@
 use crate::*;
-use ibv::CompChannel;
+
 use nix::sys::{epoll::*, eventfd::*};
-use r2dma_sys::*;
-use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::sync::{mpsc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct Task;
 
 #[derive(Debug)]
 pub struct EventLoop {
+    sockets: Arc<Mutex<Vec<Arc<Socket>>>>,
     epoll: Epoll,
     eventfd: EventFd,
-    pub comp_channel: CompChannel,
+    pub channel: Arc<Channel>,
     stopping: AtomicBool,
     pub card: Arc<Card>,
+    _buffer_pool: Arc<BufferPool>,
 }
 
 impl EventLoop {
-    pub fn new(card: &Arc<Card>) -> Result<Arc<Self>> {
-        let comp_channel = CompChannel::new(unsafe {
-            let channel = ibv_create_comp_channel(card.context.as_mut_ptr());
-            if channel.is_null() {
-                return Err(Error::with_errno(ErrorKind::IBCreateCompChannelFail));
-            }
-            channel
-        });
-        comp_channel.set_nonblock()?;
-
+    pub fn new(card: &Arc<Card>, buffer_pool: &Arc<BufferPool>) -> Result<Arc<Self>> {
         let epoll = Epoll::new(EpollCreateFlags::empty())?;
         let eventfd = EventFd::from_flags(EfdFlags::EFD_NONBLOCK)?;
+        let channel = Arc::new(Channel::new(card)?);
 
         epoll.add(
             &eventfd,
@@ -40,17 +33,24 @@ impl EventLoop {
         )?;
 
         epoll.add(
-            comp_channel.fd(),
+            channel.fd(),
             EpollEvent::new(EpollFlags::EPOLLIN | EpollFlags::EPOLLET, 1),
         )?;
 
         Ok(Arc::new(Self {
+            sockets: Default::default(),
             epoll,
             eventfd,
-            comp_channel,
+            channel,
             stopping: Default::default(),
             card: card.clone(),
+            _buffer_pool: buffer_pool.clone(),
         }))
+    }
+
+    pub fn add_socket(&self, socket: Arc<Socket>) {
+        let mut sockets = self.sockets.lock().unwrap();
+        sockets.push(socket);
     }
 
     pub fn wake_up(&self) -> Result<()> {
@@ -97,12 +97,11 @@ impl EventLoop {
 
     fn handle_work_completion(&self) {
         loop {
-            match self.comp_channel.poll() {
+            match self.channel.poll() {
                 Ok(None) => break,
                 Ok(Some(socket)) => {
                     socket.notify().unwrap();
                     socket.poll_cq();
-                    let _ = Arc::into_raw(socket);
                 }
                 Err(err) => {
                     tracing::error!("comp channel poll: {:?}", err);
