@@ -1,33 +1,27 @@
-use crate::ibv::*;
 use crate::*;
 use r2dma_sys::*;
 
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
-const MEMORY_ACCESS_FLAGS: i32 = (ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
-    | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0
-    | ibv_access_flags::IBV_ACCESS_REMOTE_READ.0
-    | ibv_access_flags::IBV_ACCESS_RELAXED_ORDERING.0) as i32;
-
 pub struct Buffer {
-    pub regions: Vec<MemoryRegion>,
+    pub regions: Vec<ibv::MemoryRegion>,
     aligned_buffer: utils::AlignedBuffer,
-    _cards: Arc<Vec<Arc<Card>>>,
+    _cards: Arc<Cards>,
 }
 
 impl Buffer {
-    pub fn new(cards: &Arc<Vec<Arc<Card>>>, size: usize) -> Result<Self> {
+    pub fn new(cards: &Arc<Cards>, size: usize) -> Result<Self> {
         let aligned_buffer = utils::AlignedBuffer::new(size);
 
         let mut regions = vec![];
-        for card in cards.deref() {
-            let memory_region = MemoryRegion::new(unsafe {
+        for card in cards.as_ref().deref() {
+            let memory_region = ibv::MemoryRegion::new(unsafe {
                 let memory_region = ibv_reg_mr(
                     card.protection_domain.as_mut_ptr(),
                     aligned_buffer.as_ptr() as _,
                     aligned_buffer.len(),
-                    MEMORY_ACCESS_FLAGS,
+                    ibv::ACCESS_FLAGS as _,
                 );
                 if memory_region.is_null() {
                     return Err(Error::with_errno(ErrorKind::IBRegMRFail));
@@ -78,8 +72,11 @@ mod tests {
 
     #[test]
     fn test_ib_memory() {
-        let cards = Cards::open().unwrap();
-        let mem = Buffer::new(&cards.cards, 1024).unwrap();
+        let config = Config::default();
+        let manager = Manager::init(&config).unwrap();
+        let mut mem = Buffer::new(&manager.cards, 1024).unwrap();
         println!("{:#?}", mem);
+        assert_eq!(mem.as_ref().len(), 1024);
+        assert_eq!(mem.as_mut().len(), 1024);
     }
 }

@@ -15,6 +15,7 @@ pub enum ErrorKind {
     IBModifyQPFail,
     IBGetCQEventFail,
     IBRegMRFail,
+    AllocateBufferFail,
     PollCompChannelFailed,
     SetNonBlockFail,
 }
@@ -80,5 +81,6 @@ mod tests {
             "{:?}",
             Error::with_msg(ErrorKind::IBGetDeviceListFail, "not found!".into())
         );
+        println!("{:?}", Error::from(nix::Error::EAGAIN));
     }
 }

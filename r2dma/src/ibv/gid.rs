@@ -65,3 +65,17 @@ impl<'a> derse::Serialization<'a> for Gid {
         Ok(gid)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Gid;
+    use derse::{DownwardBytes, Serialization};
+
+    #[test]
+    fn test_gid() {
+        let mut gid = Gid::default();
+        let bytes: DownwardBytes = gid.serialize().unwrap();
+        let mut des = Gid::deserialize(bytes.as_ref()).unwrap();
+        assert_eq!(gid.as_mut(), des.as_mut());
+    }
+}

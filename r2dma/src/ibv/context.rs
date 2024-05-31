@@ -2,7 +2,7 @@ use super::{Device, Gid};
 use crate::*;
 use r2dma_sys::*;
 
-pub type Context = Wrapper<ibv_context>;
+pub type Context = utils::Wrapper<ibv_context>;
 
 impl Context {
     pub fn device(&self) -> &Device {
@@ -38,7 +38,7 @@ impl Context {
     }
 }
 
-impl Deleter for ibv_context {
+impl utils::Deleter for ibv_context {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         ibv_close_device(ptr)
     }

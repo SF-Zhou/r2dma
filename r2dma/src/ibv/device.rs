@@ -3,7 +3,7 @@ use r2dma_sys::*;
 use std::borrow::Cow;
 use std::ffi::CStr;
 
-pub type Device = Wrapper<ibv_device>;
+pub type Device = utils::Wrapper<ibv_device>;
 
 impl Device {
     pub fn name(&self) -> Cow<str> {
@@ -15,7 +15,7 @@ impl Device {
     }
 }
 
-impl Deleter for ibv_device {
+impl utils::Deleter for ibv_device {
     unsafe fn delete(ptr: *mut Self) -> i32 {
         unreachable!("invalid deletion to Device {ptr:?}!")
     }
@@ -31,5 +31,14 @@ impl std::fmt::Debug for Device {
             .field("node_type", &self.node_type)
             .field("transport_type", &self.transport_type)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[should_panic]
+    fn test_device() {
+        let _ = super::Device::new(std::ptr::null_mut());
     }
 }
