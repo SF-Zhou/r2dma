@@ -15,9 +15,13 @@ pub enum ErrorKind {
     IBModifyQPFail,
     IBGetCQEventFail,
     IBRegMRFail,
+    IBPostSendFail,
+    IBPostRecvFail,
     AllocateBufferFail,
+    AllocateWorkFail,
     PollCompChannelFailed,
     SetNonBlockFail,
+    WorkCompletionFail,
 }
 
 #[derive(Clone)]

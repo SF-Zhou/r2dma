@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 pub struct Socket {
+    work_pool: Arc<WorkPool>,
     queue_pair: ibv::QueuePair,
     comp_queue: ibv::CompQueue,
     channel: Arc<Channel>,
@@ -11,14 +12,12 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub fn create(event_loop: &Arc<EventLoop>) -> Result<Arc<Self>> {
-        let cqe = 32;
-
+    pub fn create(event_loop: &Arc<EventLoop>, config: &Config) -> Result<Arc<Self>> {
         let card = &event_loop.card;
         let (comp_queue, cq_context) = unsafe {
             let comp_queue = ibv_create_cq(
                 card.context.as_mut_ptr(),
-                cqe as _,
+                config.max_cqe as _,
                 std::ptr::null_mut(),
                 event_loop.channel.as_mut_ptr(),
                 0,
@@ -36,10 +35,10 @@ impl Socket {
             recv_cq: comp_queue.as_mut_ptr(),
             srq: std::ptr::null_mut(),
             cap: ibv_qp_cap {
-                max_send_wr: 10,
-                max_recv_wr: 10,
-                max_send_sge: 5,
-                max_recv_sge: 5,
+                max_send_wr: config.max_wr as _,
+                max_recv_wr: config.max_wr as _,
+                max_send_sge: config.max_sge as _,
+                max_recv_sge: config.max_sge as _,
                 max_inline_data: 0,
             },
             qp_type: ibv_qp_type::IBV_QPT_RC,
@@ -56,6 +55,7 @@ impl Socket {
         queue_pair.init(1, 0)?;
 
         let arc = Arc::new(Self {
+            work_pool: event_loop.work_pool.clone(),
             queue_pair,
             comp_queue,
             channel: event_loop.channel.clone(),
@@ -98,17 +98,82 @@ impl Socket {
         socket
     }
 
-    pub fn poll_cq(&self) {
-        let mut wcs = [0u8; 16].map(|_| ibv::WorkCompletion::default());
-        match self.comp_queue.poll(&mut wcs) {
-            Ok(wcs) => {
-                for wc in wcs {
-                    let send_recv = unsafe { &mut *(wc.wr_id as *mut SendRecv) };
-                    send_recv.result = Some(wc.result());
-                    send_recv.waker.take().unwrap().wake();
-                }
-            }
-            Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
+    pub fn poll<'a>(&self, wc: &'a mut [ibv::WorkCompletion]) -> Result<&'a [ibv::WorkCompletion]> {
+        let num_entries = wc.len() as i32;
+        let num = unsafe {
+            ibv_poll_cq(
+                self.comp_queue.as_mut_ptr(),
+                num_entries,
+                wc.as_mut_ptr() as _,
+            )
+        };
+        if num >= 0 {
+            Ok(&wc[..num as usize])
+        } else {
+            Err(Error::with_errno(ErrorKind::IBPollCQFail))
+        }
+    }
+
+    pub fn send(&self, buf: BufferSlice) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        let slice = buf.as_ref();
+        let mut sge = ibv_sge {
+            addr: slice.as_ptr() as u64,
+            length: slice.len() as u32,
+            lkey: buf.lkey(),
+        };
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let mut work = self.work_pool.get()?;
+        work.bufs.push(buf);
+        work.sender = Some(tx);
+
+        let wr_id = work.release() as _;
+        let mut wr = ibv_send_wr {
+            wr_id,
+            next: std::ptr::null_mut(),
+            sg_list: &mut sge,
+            num_sge: 1,
+            opcode: ibv_wr_opcode::IBV_WR_SEND,
+            send_flags: ibv_send_flags::IBV_SEND_SIGNALED.0,
+            ..Default::default()
+        };
+        let mut bad_wr = std::ptr::null_mut();
+        let ret = unsafe { ibv_post_send(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) };
+        if ret == 0 {
+            Ok(rx)
+        } else {
+            let _ = WorkRef::new(&self.work_pool, wr_id as _);
+            Err(Error::with_errno(ErrorKind::IBPostSendFail))
+        }
+    }
+
+    pub fn recv(&self, buf: BufferSlice) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        let slice = buf.as_ref();
+        let mut sge = ibv_sge {
+            addr: slice.as_ptr() as u64,
+            length: slice.len() as u32,
+            lkey: buf.lkey(),
+        };
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let mut work = self.work_pool.get()?;
+        work.bufs.push(buf);
+        work.sender = Some(tx);
+
+        let wr_id = work.release() as _;
+        let mut wr = ibv_recv_wr {
+            wr_id,
+            next: std::ptr::null_mut(),
+            sg_list: &mut sge,
+            num_sge: 1,
+        };
+        let mut bad_wr = std::ptr::null_mut();
+        let ret = unsafe { ibv_post_recv(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) };
+        if ret == 0 {
+            Ok(rx)
+        } else {
+            let _ = WorkRef::new(&self.work_pool, wr_id as _);
+            Err(Error::with_errno(ErrorKind::IBPostRecvFail))
         }
     }
 }
@@ -130,73 +195,6 @@ impl std::fmt::Debug for Socket {
             .field("queue_pair", &self.queue_pair)
             .field("comp_queue", &self.comp_queue)
             .finish()
-    }
-}
-
-pub struct SendRecv<'a> {
-    pub is_recv: bool,
-    pub socket: Arc<Socket>,
-    pub mem: &'a BufferSlice,
-    pub waker: Option<std::task::Waker>,
-    pub result: Option<std::result::Result<u32, ibv_wc_status>>,
-}
-
-impl<'a> std::future::Future for SendRecv<'a> {
-    type Output = std::result::Result<u32, ibv_wc_status>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        if let Some(result) = self.result.take() {
-            std::task::Poll::Ready(result)
-        } else {
-            self.waker = Some(cx.waker().clone());
-
-            let slice = self.mem.as_ref();
-            let mut sge = ibv_sge {
-                addr: slice.as_ptr() as u64,
-                length: slice.len() as u32,
-                lkey: self.mem.lkey(),
-            };
-            if self.is_recv {
-                let mut recv_wr = ibv_recv_wr {
-                    wr_id: self.as_ref().get_ref() as *const _ as _,
-                    next: std::ptr::null_mut(),
-                    sg_list: &mut sge,
-                    num_sge: 1,
-                };
-                let mut bad_wr = std::ptr::null_mut();
-                let ret = unsafe {
-                    ibv_post_recv(
-                        self.socket.queue_pair.as_mut_ptr(),
-                        &mut recv_wr,
-                        &mut bad_wr,
-                    )
-                };
-                assert_eq!(ret, 0);
-            } else {
-                let mut send_wr = ibv_send_wr {
-                    wr_id: self.as_ref().get_ref() as *const _ as _,
-                    next: std::ptr::null_mut(),
-                    sg_list: &mut sge,
-                    num_sge: 1,
-                    opcode: ibv_wr_opcode::IBV_WR_SEND,
-                    send_flags: ibv_send_flags::IBV_SEND_SIGNALED.0,
-                    ..Default::default()
-                };
-                let mut bad_wr = std::ptr::null_mut();
-                let ret = unsafe {
-                    ibv_post_send(
-                        self.socket.queue_pair.as_mut_ptr(),
-                        &mut send_wr,
-                        &mut bad_wr,
-                    )
-                };
-                assert_eq!(ret, 0);
-            }
-            std::task::Poll::Pending
-        }
     }
 }
 
@@ -233,22 +231,15 @@ mod tests {
         recv_memory.as_mut().fill(0);
         assert_ne!(send_memory.as_ref(), recv_memory.as_ref());
 
-        let send = SendRecv {
-            is_recv: false,
-            socket: send_socket.clone(),
-            mem: &send_memory,
-            waker: None,
-            result: None,
-        };
-        let recv = SendRecv {
-            is_recv: true,
-            socket: recv_socket.clone(),
-            mem: &recv_memory,
-            waker: None,
-            result: None,
-        };
-        let (send_result, recv_result) = tokio::join!(recv, send);
-        send_result.unwrap();
-        assert_eq!(recv_result, Ok(send_memory.length() as _));
+        let recv_rx = recv_socket.recv(recv_memory).unwrap();
+        let send_rx = send_socket.send(send_memory).unwrap();
+
+        let (send_result, recv_result) = tokio::join!(send_rx, recv_rx);
+        println!("send result: {}", send_result.unwrap().unwrap());
+        println!("recv result: {}", recv_result.unwrap().unwrap());
+
+        let invalid_socket = manager.create_socket().unwrap();
+        let memory = manager.allocate_buffer().unwrap();
+        invalid_socket.send(memory).unwrap_err();
     }
 }

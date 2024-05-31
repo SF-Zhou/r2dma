@@ -12,17 +12,22 @@ pub struct Task;
 
 #[derive(Debug)]
 pub struct EventLoop {
-    sockets: Arc<Mutex<Vec<Arc<Socket>>>>,
+    sockets: Mutex<Vec<Arc<Socket>>>,
     epoll: Epoll,
     eventfd: EventFd,
     pub channel: Arc<Channel>,
     stopping: AtomicBool,
     pub card: Arc<Card>,
     _buffer_pool: Arc<BufferPool>,
+    pub work_pool: Arc<WorkPool>,
 }
 
 impl EventLoop {
-    pub fn new(card: &Arc<Card>, buffer_pool: &Arc<BufferPool>) -> Result<Arc<Self>> {
+    pub fn new(
+        card: &Arc<Card>,
+        buffer_pool: &Arc<BufferPool>,
+        work_pool: &Arc<WorkPool>,
+    ) -> Result<Arc<Self>> {
         let epoll = Epoll::new(EpollCreateFlags::empty())?;
         let eventfd = EventFd::from_flags(EfdFlags::EFD_NONBLOCK)?;
         let channel = Arc::new(Channel::new(card)?);
@@ -45,6 +50,7 @@ impl EventLoop {
             stopping: Default::default(),
             card: card.clone(),
             _buffer_pool: buffer_pool.clone(),
+            work_pool: work_pool.clone(),
         }))
     }
 
@@ -77,7 +83,7 @@ impl EventLoop {
                                 let _ = self.eventfd.read();
                             }
                             _ => {
-                                self.handle_work_completion();
+                                self.handle_channel_event();
                             }
                         }
                     }
@@ -95,19 +101,37 @@ impl EventLoop {
         tracing::info!("event_loop is stopped.");
     }
 
-    fn handle_work_completion(&self) {
+    fn handle_channel_event(&self) {
         loop {
             match self.channel.poll() {
                 Ok(None) => break,
-                Ok(Some(socket)) => {
-                    socket.notify().unwrap();
-                    socket.poll_cq();
-                }
+                Ok(Some(socket)) => self.handle_work_completion(socket),
                 Err(err) => {
                     tracing::error!("comp channel poll: {:?}", err);
                     break;
                 }
             }
+        }
+    }
+
+    fn handle_work_completion(&self, socket: &Socket) {
+        socket.notify().unwrap();
+        let mut wcs = [0u8; 16].map(|_| ibv::WorkCompletion::default());
+        match socket.poll(&mut wcs) {
+            Ok(wcs) => {
+                for wc in wcs {
+                    let mut work = WorkRef::new(&self.work_pool, wc.wr_id as _);
+                    work.bufs.clear();
+
+                    if let Some(sender) = work.sender.take() {
+                        let _ = sender.send(
+                            wc.result()
+                                .map_err(|_| Error::new(ErrorKind::WorkCompletionFail)),
+                        );
+                    }
+                }
+            }
+            Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
         }
     }
 }

@@ -40,14 +40,7 @@ async fn main() -> std::result::Result<(), Box<dyn Error>> {
     println!("send memory: {:#?}", send_memory);
     send_memory.as_mut().fill(0x23);
 
-    let send = SendRecv {
-        is_recv: false,
-        socket: send_socket.clone(),
-        mem: &send_memory,
-        waker: None,
-        result: None,
-    };
-    let result = send.await;
+    let result = send_socket.send(send_memory).unwrap().await;
     println!("{:#?}", result);
 
     Ok(())

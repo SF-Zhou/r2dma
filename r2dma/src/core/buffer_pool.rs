@@ -93,7 +93,7 @@ impl BufferSlice {
 impl std::convert::AsRef<[u8]> for BufferSlice {
     fn as_ref(&self) -> &[u8] {
         let memory_region = &*self.pool.bufs[self.i as usize];
-        let size = self.pool.size;
+        let size = self.length();
         let base = self.j as usize * size;
         unsafe { std::slice::from_raw_parts(memory_region.addr.byte_add(base) as _, size) }
     }
@@ -102,7 +102,7 @@ impl std::convert::AsRef<[u8]> for BufferSlice {
 impl std::convert::AsMut<[u8]> for BufferSlice {
     fn as_mut(&mut self) -> &mut [u8] {
         let memory_region = &*self.pool.bufs[self.i as usize];
-        let size = self.pool.size;
+        let size = self.length();
         let base = self.j as usize * size;
         unsafe { std::slice::from_raw_parts_mut(memory_region.addr.byte_add(base) as _, size) }
     }
