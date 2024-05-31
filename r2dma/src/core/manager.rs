@@ -10,17 +10,20 @@ pub struct Manager {
     pub event_loops: Vec<Arc<EventLoop>>,
     buffer_pool: Arc<BufferPool>,
     pub cards: Arc<Cards>,
+    work_pool: Arc<WorkPool>,
+    config: Config,
 }
 
 impl Manager {
     pub fn init(config: &Config) -> Result<Self> {
         let cards = Cards::open()?;
         let buffer_pool = BufferPool::new(&cards, config.buffer_size, config.buffer_count)?;
+        let work_pool = Arc::new(WorkPool::new(config.work_pool_size));
 
         let mut threads = vec![];
         let mut event_loops = vec![];
         for card in cards.as_ref().deref() {
-            let event_loop = EventLoop::new(card, &buffer_pool)?;
+            let event_loop = EventLoop::new(card, &buffer_pool, &work_pool)?;
             event_loops.push(event_loop.clone());
 
             threads.push(std::thread::spawn(move || {
@@ -34,6 +37,8 @@ impl Manager {
             event_loops,
             buffer_pool,
             cards,
+            work_pool,
+            config: *config,
         })
     }
 
@@ -41,12 +46,16 @@ impl Manager {
         self.buffer_pool.get()
     }
 
+    pub fn allocate_work(&self) -> Result<WorkRef> {
+        self.work_pool.get()
+    }
+
     pub fn create_socket(&self) -> Result<Arc<Socket>> {
         let event_loop = self
             .event_loops
             .first()
             .ok_or(Error::new(ErrorKind::IBDeviceNotFound))?;
-        Socket::create(event_loop)
+        Socket::create(event_loop, &self.config)
     }
 
     pub fn stop_and_join(&mut self) -> Result<()> {
@@ -93,6 +102,10 @@ mod tests {
                 mems.push(mem);
             }
             pool.get().unwrap_err();
+        }
+
+        for _ in 0..1024 {
+            let _ = manager.allocate_work().unwrap();
         }
     }
 }

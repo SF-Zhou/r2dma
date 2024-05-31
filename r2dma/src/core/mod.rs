@@ -7,6 +7,7 @@ mod config;
 mod event_loop;
 mod manager;
 mod socket;
+mod work;
 
 pub use buffer::Buffer;
 pub use buffer_pool::{BufferPool, BufferSlice};
@@ -16,4 +17,5 @@ pub use channel::Channel;
 pub use config::Config;
 pub use event_loop::EventLoop;
 pub use manager::Manager;
-pub use socket::{SendRecv, Socket};
+pub use socket::Socket;
+pub use work::{Work, WorkPool, WorkRef};

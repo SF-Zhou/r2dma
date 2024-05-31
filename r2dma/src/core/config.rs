@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub buffer_size: usize,
     pub buffer_count: usize,
+    pub max_cqe: usize,
+    pub max_wr: usize,
+    pub max_sge: usize,
+    pub work_pool_size: usize,
 }
 
 impl Default for Config {
@@ -11,6 +15,10 @@ impl Default for Config {
         Self {
             buffer_size: 1 << 20,
             buffer_count: 64,
+            max_cqe: 64,
+            max_wr: 10,
+            max_sge: 5,
+            work_pool_size: 1024,
         }
     }
 }
