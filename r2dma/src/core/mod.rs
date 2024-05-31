@@ -18,4 +18,4 @@ pub use config::Config;
 pub use event_loop::EventLoop;
 pub use manager::Manager;
 pub use socket::Socket;
-pub use work::{Work, WorkPool, WorkRef};
+pub use work::{Work, WorkPool, WorkRef, WorkType};

@@ -1,6 +1,6 @@
 use crate::*;
 use r2dma_sys::*;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 pub struct Socket {
@@ -8,7 +8,8 @@ pub struct Socket {
     queue_pair: ibv::QueuePair,
     comp_queue: ibv::CompQueue,
     channel: Arc<Channel>,
-    events: AtomicU32,
+    unack_events_count: AtomicU32,
+    pub(super) ready_to_error: AtomicBool,
 }
 
 impl Socket {
@@ -59,7 +60,8 @@ impl Socket {
             queue_pair,
             comp_queue,
             channel: event_loop.channel.clone(),
-            events: Default::default(),
+            unack_events_count: Default::default(),
+            ready_to_error: Default::default(),
         });
 
         *cq_context = arc.as_ref() as *const _ as _;
@@ -94,7 +96,7 @@ impl Socket {
 
     pub fn from_cq_context<'a>(cq_context: *mut std::ffi::c_void) -> &'a Self {
         let socket = unsafe { &*(cq_context as *const Socket) };
-        socket.events.fetch_add(1, Ordering::Relaxed);
+        socket.unack_events_count.fetch_add(1, Ordering::Relaxed);
         socket
     }
 
@@ -147,6 +149,38 @@ impl Socket {
         }
     }
 
+    pub fn prepare_close(&self) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        self.wake_up(WorkType::PrepareClose)
+    }
+
+    pub(super) fn wake_up(
+        &self,
+        ty: WorkType,
+    ) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let mut work = self.work_pool.get()?;
+        work.ty = ty;
+        work.sender = Some(tx);
+        let wr_id = work.release() as _;
+        let mut wr = ibv_send_wr {
+            wr_id,
+            next: std::ptr::null_mut(),
+            sg_list: std::ptr::null_mut(),
+            num_sge: 0,
+            opcode: ibv_wr_opcode::IBV_WR_SEND,
+            send_flags: ibv_send_flags::IBV_SEND_SIGNALED.0,
+            ..Default::default()
+        };
+        let mut bad_wr = std::ptr::null_mut();
+        let ret = unsafe { ibv_post_send(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) };
+        if ret == 0 {
+            Ok(rx)
+        } else {
+            let _ = WorkRef::new(&self.work_pool, wr_id as _);
+            Err(Error::with_errno(ErrorKind::IBPostSendFail))
+        }
+    }
+
     pub fn recv(&self, buf: BufferSlice) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
         let slice = buf.as_ref();
         let mut sge = ibv_sge {
@@ -183,7 +217,7 @@ impl Drop for Socket {
         unsafe {
             ibv_ack_cq_events(
                 self.comp_queue.as_mut_ptr(),
-                self.events.load(Ordering::Acquire),
+                self.unack_events_count.load(Ordering::Acquire),
             );
         }
     }
@@ -237,6 +271,9 @@ mod tests {
         let (send_result, recv_result) = tokio::join!(send_rx, recv_rx);
         println!("send result: {}", send_result.unwrap().unwrap());
         println!("recv result: {}", recv_result.unwrap().unwrap());
+
+        send_socket.prepare_close().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         let invalid_socket = manager.create_socket().unwrap();
         let memory = manager.allocate_buffer().unwrap();

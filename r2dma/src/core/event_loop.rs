@@ -115,23 +115,46 @@ impl EventLoop {
     }
 
     fn handle_work_completion(&self, socket: &Socket) {
-        socket.notify().unwrap();
+        if !socket.ready_to_error.load(Ordering::Acquire) {
+            socket.notify().unwrap();
+        }
         let mut wcs = [0u8; 16].map(|_| ibv::WorkCompletion::default());
+        let mut prepare_close = false;
+        let mut closed = false;
         match socket.poll(&mut wcs) {
             Ok(wcs) => {
                 for wc in wcs {
                     let mut work = WorkRef::new(&self.work_pool, wc.wr_id as _);
                     work.bufs.clear();
 
-                    if let Some(sender) = work.sender.take() {
-                        let _ = sender.send(
-                            wc.result()
-                                .map_err(|_| Error::new(ErrorKind::WorkCompletionFail)),
-                        );
+                    match work.ty {
+                        WorkType::PrepareClose => {
+                            socket.ready_to_error.store(true, Ordering::Release);
+                            prepare_close = true;
+                        }
+                        WorkType::Close => {
+                            closed = true;
+                        }
+                        _ => {
+                            if let Some(sender) = work.sender.take() {
+                                let _ =
+                                    sender
+                                        .send(wc.result().map_err(|_| {
+                                            Error::new(ErrorKind::WorkCompletionFail)
+                                        }));
+                            }
+                        }
                     }
                 }
             }
             Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
+        }
+
+        if prepare_close {
+            socket.wake_up(WorkType::Close).unwrap();
+        }
+        if closed {
+            println!("socket closed: {:#?}", socket);
         }
     }
 }

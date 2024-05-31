@@ -2,8 +2,22 @@ use std::sync::Mutex;
 
 use crate::*;
 
+pub enum WorkType {
+    Send,
+    Recv,
+    PrepareClose,
+    Close,
+}
+
+impl Default for WorkType {
+    fn default() -> Self {
+        Self::Send
+    }
+}
+
 #[derive(Default)]
 pub struct Work {
+    pub ty: WorkType,
     pub bufs: Vec<BufferSlice>,
     pub sender: Option<tokio::sync::oneshot::Sender<Result<u32>>>,
 }
