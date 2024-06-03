@@ -149,6 +149,10 @@ impl Socket {
         }
     }
 
+    pub fn set_to_error(&self) -> Result<()> {
+        self.queue_pair.set_to_error()
+    }
+
     pub fn prepare_close(&self) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
         self.wake_up(WorkType::PrepareClose)
     }
@@ -272,8 +276,15 @@ mod tests {
         println!("send result: {}", send_result.unwrap().unwrap());
         println!("recv result: {}", recv_result.unwrap().unwrap());
 
-        send_socket.prepare_close().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        let recv_memory = manager.allocate_buffer().unwrap();
+        let recv_rx = recv_socket.recv(recv_memory).unwrap();
+        let clone = recv_socket.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            clone.set_to_error()
+        });
+        let recv_result = recv_rx.await.unwrap();
+        assert!(recv_result.is_err());
 
         let invalid_socket = manager.create_socket().unwrap();
         let memory = manager.allocate_buffer().unwrap();
