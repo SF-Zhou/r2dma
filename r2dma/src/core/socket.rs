@@ -58,16 +58,10 @@ impl Socket {
         }
     }
 
-    pub fn submit_work(&self, work: WorkRef) -> Result<()> {
-        // 1. prepare to submit.
-        let ok = self.state.prepare_submit();
-        if !ok {
-            self.rollback_submit_and_try_to_remove();
-            return Err(Error::new(ErrorKind::IBSocketError));
-        }
-
-        // 2. create sge.
-        let mut sge = work.buf.as_ref().map(|buf| ibv_sge {
+    fn submit_work_unchecked<W: Submittable + AsRef<Work>>(&self, work: W) -> Result<()> {
+        // 1. create sge.
+        let w = work.as_ref();
+        let mut sge = w.buf.as_ref().map(|buf| ibv_sge {
             addr: buf.as_ref().as_ptr() as u64,
             length: buf.as_ref().len() as u32,
             lkey: buf.lkey(),
@@ -77,20 +71,20 @@ impl Socket {
             None => (std::ptr::null_mut(), 0),
         };
 
-        // 3. create work request and post.
-        let ret = match work.ty {
+        // 2. create work request and post.
+        let ret = match w.ty {
             WorkType::Send => {
                 let mut wr = ibv_send_wr {
-                    wr_id: work.ptr() as _,
+                    wr_id: work.wr_id(),
                     sg_list,
                     num_sge,
-                    opcode: match work.imm {
+                    opcode: match w.imm {
                         Some(_) => ibv_wr_opcode::IBV_WR_SEND_WITH_IMM,
                         None => ibv_wr_opcode::IBV_WR_SEND,
                     },
                     send_flags: ibv_send_flags::IBV_SEND_SIGNALED.0,
                     __bindgen_anon_1: ibv_send_wr__bindgen_ty_1 {
-                        imm_data: work.imm.map_or(0, |n| n.get()).to_be(),
+                        imm_data: w.imm.map_or(0, |n| n.get()).to_be(),
                     },
                     ..Default::default()
                 };
@@ -99,7 +93,7 @@ impl Socket {
             }
             WorkType::Recv => {
                 let mut wr = ibv_recv_wr {
-                    wr_id: work.ptr() as _,
+                    wr_id: work.wr_id(),
                     next: std::ptr::null_mut(),
                     sg_list,
                     num_sge,
@@ -109,28 +103,33 @@ impl Socket {
             }
         };
 
-        // 4. check return code.
+        // 3. check return code.
         if ret == 0 {
             work.release();
             Ok(())
         } else {
-            self.rollback_submit_and_try_to_remove();
+            // TODO(SF): send a complete msg with error to queue pair.
             Err(Error::with_errno(ErrorKind::IBPostSendFail))
         }
     }
 
-    fn rollback_submit_and_try_to_remove(&self) {
-        let need_remove = self.state.rollback_submit_and_try_to_remove();
-        if need_remove {
-            // TODO(SF): remove this socket.
+    pub fn submit_work<W: Submittable + AsRef<Work>>(&self, work: W) -> Result<()> {
+        // 1. prepare to submit.
+        let ok = self.state.prepare_submit();
+        if !ok {
+            // the socket is already in error state.
+            return Err(Error::new(ErrorKind::IBSocketError));
         }
+
+        self.submit_work_unchecked(work)
     }
 
     pub fn set_to_error(&self) -> Result<()> {
-        let need_remove = self.state.set_error_and_try_to_remove();
+        let need_send_empty_wr = self.state.set_error();
         let result = self.queue_pair.set_to_error();
-        if need_remove {
-            // TODO(SF): remove this socket in event loop.
+        if need_send_empty_wr {
+            let w = Work::default();
+            self.submit_work_unchecked(w)?;
         }
         result
     }

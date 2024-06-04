@@ -20,4 +20,4 @@ pub use event_loop::EventLoop;
 pub use manager::Manager;
 pub use socket::Socket;
 pub use state::State;
-pub use work::{Work, WorkPool, WorkRef, WorkType};
+pub use work::{Submittable, Work, WorkPool, WorkRef, WorkType};

@@ -21,6 +21,21 @@ pub struct Work {
     pub buf: Option<BufferSlice>,
 }
 
+pub trait Submittable {
+    fn wr_id(&self) -> u64;
+    fn release(self);
+}
+
+impl Submittable for Work {
+    fn wr_id(&self) -> u64 {
+        0
+    }
+
+    fn release(self) {
+        drop(self)
+    }
+}
+
 pub struct WorkPool {
     _vec: Vec<Work>,
     pool: Mutex<Vec<usize>>,
@@ -32,15 +47,20 @@ pub struct WorkRef<'a> {
 }
 
 impl<'a> WorkRef<'a> {
-    pub fn new(pool: &'a WorkPool, id: usize) -> Self {
-        Self { pool, ptr: id as _ }
+    pub fn new(pool: &'a WorkPool, wr_id: u64) -> Self {
+        Self {
+            pool,
+            ptr: wr_id as _,
+        }
+    }
+}
+
+impl Submittable for WorkRef<'_> {
+    fn wr_id(&self) -> u64 {
+        self.ptr as _
     }
 
-    pub fn ptr(&self) -> usize {
-        self.ptr
-    }
-
-    pub fn release(self) {
+    fn release(self) {
         std::mem::forget(self)
     }
 }
@@ -49,6 +69,18 @@ impl Drop for WorkRef<'_> {
     fn drop(&mut self) {
         self.buf = None;
         self.pool.put(self.ptr)
+    }
+}
+
+impl AsRef<Work> for Work {
+    fn as_ref(&self) -> &Work {
+        self
+    }
+}
+
+impl AsRef<Work> for WorkRef<'_> {
+    fn as_ref(&self) -> &Work {
+        unsafe { &*(self.ptr as *const _) }
     }
 }
 
@@ -128,7 +160,7 @@ mod tests {
 
         let work = work_pool.get().unwrap();
         assert!(work.buf.is_none());
-        let id = work.ptr();
+        let id = work.wr_id();
         work.release();
         let _ = WorkRef::new(&work_pool, id);
     }

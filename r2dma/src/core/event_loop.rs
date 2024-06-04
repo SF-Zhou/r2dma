@@ -76,6 +76,10 @@ impl EventLoop {
 
                     let mut is_error = false;
                     for wc in wcs {
+                        if wc.wr_id == 0 {
+                            continue; // wake up wr.
+                        }
+
                         let work = WorkRef::new(&self.work_pool, wc.wr_id as _);
 
                         let result = match work.ty {
@@ -93,6 +97,7 @@ impl EventLoop {
                     let need_remove = socket.state.work_complete(wcs.len() as u64);
                     if need_remove {
                         // TODO(SF): remove this socket.
+                        println!("remove socket: {:#?}", socket);
                     }
                 }
                 Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
