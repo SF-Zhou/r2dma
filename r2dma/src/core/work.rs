@@ -5,8 +5,6 @@ use crate::*;
 pub enum WorkType {
     Send,
     Recv,
-    PrepareClose,
-    Close,
 }
 
 impl Default for WorkType {

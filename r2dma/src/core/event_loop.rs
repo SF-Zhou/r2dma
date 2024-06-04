@@ -15,10 +15,11 @@ pub struct EventLoop {
     sockets: Mutex<Vec<Arc<Socket>>>,
     epoll: Epoll,
     eventfd: EventFd,
-    pub channel: Arc<Channel>,
     stopping: AtomicBool,
+
+    pub channel: Arc<Channel>,
     pub card: Arc<Card>,
-    _buffer_pool: Arc<BufferPool>,
+    pub buffer_pool: Arc<BufferPool>,
     pub work_pool: Arc<WorkPool>,
 }
 
@@ -46,10 +47,11 @@ impl EventLoop {
             sockets: Default::default(),
             epoll,
             eventfd,
-            channel,
             stopping: Default::default(),
+
+            channel,
             card: card.clone(),
-            _buffer_pool: buffer_pool.clone(),
+            buffer_pool: buffer_pool.clone(),
             work_pool: work_pool.clone(),
         }))
     }
@@ -115,46 +117,34 @@ impl EventLoop {
     }
 
     fn handle_work_completion(&self, socket: &Socket) {
-        if !socket.ready_to_error.load(Ordering::Acquire) {
-            socket.notify().unwrap();
-        }
+        socket.notify().unwrap();
+
         let mut wcs = [0u8; 16].map(|_| ibv::WorkCompletion::default());
-        let mut prepare_close = false;
-        let mut closed = false;
         match socket.poll(&mut wcs) {
             Ok(wcs) => {
                 for wc in wcs {
                     let mut work = WorkRef::new(&self.work_pool, wc.wr_id as _);
-                    work.bufs.clear();
 
                     match work.ty {
-                        WorkType::PrepareClose => {
-                            socket.ready_to_error.store(true, Ordering::Release);
-                            prepare_close = true;
-                        }
-                        WorkType::Close => {
-                            closed = true;
-                        }
-                        _ => {
-                            if let Some(sender) = work.sender.take() {
-                                let _ =
-                                    sender
-                                        .send(wc.result().map_err(|_| {
-                                            Error::new(ErrorKind::WorkCompletionFail)
-                                        }));
-                            }
-                        }
+                        WorkType::Send => socket.on_send(wc),
+                        WorkType::Recv => socket.on_recv(wc, &mut work),
                     }
+                    work.bufs.clear();
+
+                    if let Some(sender) = work.sender.take() {
+                        let _ = sender.send(
+                            wc.result()
+                                .map_err(|_| Error::new(ErrorKind::WorkCompletionFail)),
+                        );
+                    }
+                }
+
+                let need_remove = socket.state.work_complete(wcs.len() as u64);
+                if need_remove {
+                    // TODO(SF): remove this socket.
                 }
             }
             Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
-        }
-
-        if prepare_close {
-            socket.wake_up(WorkType::Close).unwrap();
-        }
-        if closed {
-            println!("socket closed: {:#?}", socket);
         }
     }
 }

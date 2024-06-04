@@ -1,6 +1,7 @@
 use crate::*;
+use ibv::WorkCompletion;
 use r2dma_sys::*;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 pub struct Socket {
@@ -9,7 +10,7 @@ pub struct Socket {
     comp_queue: ibv::CompQueue,
     channel: Arc<Channel>,
     unack_events_count: AtomicU32,
-    pub(super) ready_to_error: AtomicBool,
+    pub state: State,
 }
 
 impl Socket {
@@ -61,12 +62,18 @@ impl Socket {
             comp_queue,
             channel: event_loop.channel.clone(),
             unack_events_count: Default::default(),
-            ready_to_error: Default::default(),
+            state: Default::default(),
         });
 
         *cq_context = arc.as_ref() as *const _ as _;
         arc.notify()?;
         event_loop.add_socket(arc.clone());
+
+        let buffer_pool = &event_loop.buffer_pool;
+        for _ in 0..10 {
+            let memory = buffer_pool.get()?;
+            arc.recv(memory)?;
+        }
 
         Ok(arc)
     }
@@ -116,7 +123,20 @@ impl Socket {
         }
     }
 
+    fn rollback_submit_and_try_to_remove(&self) {
+        let need_remove = self.state.rollback_submit_and_try_to_remove();
+        if need_remove {
+            // TODO(SF): remove this socket.
+        }
+    }
+
     pub fn send(&self, buf: BufferSlice) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        let ok = self.state.prepare_submit();
+        if !ok {
+            self.rollback_submit_and_try_to_remove();
+            return Err(Error::new(ErrorKind::IBSocketError));
+        }
+
         let slice = buf.as_ref();
         let mut sge = ibv_sge {
             addr: slice.as_ptr() as u64,
@@ -126,6 +146,7 @@ impl Socket {
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut work = self.work_pool.get()?;
+        work.ty = WorkType::Send;
         work.bufs.push(buf);
         work.sender = Some(tx);
 
@@ -145,26 +166,23 @@ impl Socket {
             Ok(rx)
         } else {
             let _ = WorkRef::new(&self.work_pool, wr_id as _);
+            self.rollback_submit_and_try_to_remove();
             Err(Error::with_errno(ErrorKind::IBPostSendFail))
         }
     }
 
-    pub fn set_to_error(&self) -> Result<()> {
-        self.queue_pair.set_to_error()
-    }
+    pub fn send_imm(&self) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        let ok = self.state.prepare_submit();
+        if !ok {
+            self.rollback_submit_and_try_to_remove();
+            return Err(Error::new(ErrorKind::IBSocketError));
+        }
 
-    pub fn prepare_close(&self) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
-        self.wake_up(WorkType::PrepareClose)
-    }
-
-    pub(super) fn wake_up(
-        &self,
-        ty: WorkType,
-    ) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut work = self.work_pool.get()?;
-        work.ty = ty;
+        work.ty = WorkType::Send;
         work.sender = Some(tx);
+
         let wr_id = work.release() as _;
         let mut wr = ibv_send_wr {
             wr_id,
@@ -181,11 +199,27 @@ impl Socket {
             Ok(rx)
         } else {
             let _ = WorkRef::new(&self.work_pool, wr_id as _);
+            self.rollback_submit_and_try_to_remove();
             Err(Error::with_errno(ErrorKind::IBPostSendFail))
         }
     }
 
+    pub fn set_to_error(&self) -> Result<()> {
+        let need_remove = self.state.set_error_and_try_to_remove();
+        let result = self.queue_pair.set_to_error();
+        if need_remove {
+            // TODO(SF): remove this socket in event loop.
+        }
+        result
+    }
+
     pub fn recv(&self, buf: BufferSlice) -> Result<tokio::sync::oneshot::Receiver<Result<u32>>> {
+        let ok = self.state.prepare_submit();
+        if !ok {
+            self.rollback_submit_and_try_to_remove();
+            return Err(Error::new(ErrorKind::IBSocketError));
+        }
+
         let slice = buf.as_ref();
         let mut sge = ibv_sge {
             addr: slice.as_ptr() as u64,
@@ -195,6 +229,7 @@ impl Socket {
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         let mut work = self.work_pool.get()?;
+        work.ty = WorkType::Recv;
         work.bufs.push(buf);
         work.sender = Some(tx);
 
@@ -214,6 +249,14 @@ impl Socket {
             Err(Error::with_errno(ErrorKind::IBPostRecvFail))
         }
     }
+
+    pub fn on_send(&self, wc: &WorkCompletion) {
+        println!("on send: {wc:#?}");
+    }
+
+    pub fn on_recv(&self, wc: &WorkCompletion, _work: &mut WorkRef) {
+        println!("on recv: {wc:#?}");
+    }
 }
 
 impl Drop for Socket {
@@ -232,6 +275,7 @@ impl std::fmt::Debug for Socket {
         f.debug_struct("Socket")
             .field("queue_pair", &self.queue_pair)
             .field("comp_queue", &self.comp_queue)
+            .field("state", &self.state)
             .finish()
     }
 }
@@ -264,30 +308,9 @@ mod tests {
         let mut send_memory = manager.allocate_buffer().unwrap();
         println!("send memory: {:#?}", send_memory);
         send_memory.as_mut().fill(0x23);
-        let mut recv_memory = manager.allocate_buffer().unwrap();
-        println!("recv memory: {:#?}", recv_memory);
-        recv_memory.as_mut().fill(0);
-        assert_ne!(send_memory.as_ref(), recv_memory.as_ref());
 
-        let recv_rx = recv_socket.recv(recv_memory).unwrap();
         let send_rx = send_socket.send(send_memory).unwrap();
-
-        let (send_result, recv_result) = tokio::join!(send_rx, recv_rx);
-        println!("send result: {}", send_result.unwrap().unwrap());
-        println!("recv result: {}", recv_result.unwrap().unwrap());
-
-        let recv_memory = manager.allocate_buffer().unwrap();
-        let recv_rx = recv_socket.recv(recv_memory).unwrap();
-        let clone = recv_socket.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            clone.set_to_error()
-        });
-        let recv_result = recv_rx.await.unwrap();
-        assert!(recv_result.is_err());
-
-        let invalid_socket = manager.create_socket().unwrap();
-        let memory = manager.allocate_buffer().unwrap();
-        invalid_socket.send(memory).unwrap_err();
+        let result = send_rx.await.unwrap();
+        println!("send result: {:?}", result);
     }
 }

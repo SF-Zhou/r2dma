@@ -7,6 +7,7 @@ mod config;
 mod event_loop;
 mod manager;
 mod socket;
+mod state;
 mod work;
 
 pub use buffer::Buffer;
@@ -18,4 +19,5 @@ pub use config::Config;
 pub use event_loop::EventLoop;
 pub use manager::Manager;
 pub use socket::Socket;
+pub use state::State;
 pub use work::{Work, WorkPool, WorkRef, WorkType};
