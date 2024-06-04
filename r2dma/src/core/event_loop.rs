@@ -1,10 +1,8 @@
+use nix::sys::epoll::EpollEvent;
+
 use crate::*;
 
-use nix::sys::{epoll::*, eventfd::*};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use std::sync::{mpsc, Mutex};
 
 #[derive(Debug, Default)]
@@ -13,10 +11,6 @@ pub struct Task;
 #[derive(Debug)]
 pub struct EventLoop {
     sockets: Mutex<Vec<Arc<Socket>>>,
-    epoll: Epoll,
-    eventfd: EventFd,
-    stopping: AtomicBool,
-
     pub channel: Arc<Channel>,
     pub card: Arc<Card>,
     pub buffer_pool: Arc<BufferPool>,
@@ -29,26 +23,10 @@ impl EventLoop {
         buffer_pool: &Arc<BufferPool>,
         work_pool: &Arc<WorkPool>,
     ) -> Result<Arc<Self>> {
-        let epoll = Epoll::new(EpollCreateFlags::empty())?;
-        let eventfd = EventFd::from_flags(EfdFlags::EFD_NONBLOCK)?;
         let channel = Arc::new(Channel::new(card)?);
-
-        epoll.add(
-            &eventfd,
-            EpollEvent::new(EpollFlags::EPOLLIN | EpollFlags::EPOLLET, 0),
-        )?;
-
-        epoll.add(
-            channel.fd(),
-            EpollEvent::new(EpollFlags::EPOLLIN | EpollFlags::EPOLLET, 1),
-        )?;
 
         Ok(Arc::new(Self {
             sockets: Default::default(),
-            epoll,
-            eventfd,
-            stopping: Default::default(),
-
             channel,
             card: card.clone(),
             buffer_pool: buffer_pool.clone(),
@@ -61,28 +39,23 @@ impl EventLoop {
         sockets.push(socket);
     }
 
-    pub fn wake_up(&self) -> Result<()> {
-        self.eventfd.write(1)?;
-        Ok(())
-    }
-
     pub fn stop(&self) -> Result<()> {
         tracing::info!("event_loop is stopping...");
-        self.stopping.store(true, Ordering::Release);
-        self.wake_up()?;
+        self.channel.set_stop();
+        self.channel.wake_up()?;
         Ok(())
     }
 
     pub fn run(&self, receiver: mpsc::Receiver<Task>) {
         let mut events = vec![EpollEvent::empty(); 1024];
-        while !self.stopping.load(Ordering::Acquire) {
-            match self.epoll.wait(&mut events, EpollTimeout::NONE) {
-                Ok(n) => {
-                    for event in &events[..n] {
+        while !self.channel.is_stopping() {
+            match self.channel.epoll_wait(&mut events) {
+                Ok(events) => {
+                    for event in events {
                         match event.data() {
                             0 => {
                                 // just wake up!
-                                let _ = self.eventfd.read();
+                                self.channel.on_wake_up();
                             }
                             _ => {
                                 self.handle_channel_event();
