@@ -1,7 +1,7 @@
 use crate::*;
 use r2dma_sys::*;
 
-use std::os::fd::BorrowedFd;
+use std::os::{fd::BorrowedFd, raw::c_void};
 
 pub type CompChannel = utils::Wrapper<ibv_comp_channel>;
 
@@ -24,14 +24,14 @@ impl CompChannel {
         }
     }
 
-    pub fn poll(&self) -> Result<Option<&Socket>> {
+    pub fn get_cq_event(&self) -> Result<*mut c_void> {
         let mut comp_queue: *mut ibv_cq = std::ptr::null_mut();
         let mut cq_context: *mut std::ffi::c_void = std::ptr::null_mut();
         let ret = unsafe { ibv_get_cq_event(self.as_mut_ptr(), &mut comp_queue, &mut cq_context) };
         if ret == 0 {
-            Ok(Some(Socket::from_cq_context(cq_context)))
+            Ok(cq_context)
         } else if std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock {
-            Ok(None)
+            Ok(std::ptr::null_mut())
         } else {
             Err(Error::with_errno(ErrorKind::IBGetCQEventFail))
         }

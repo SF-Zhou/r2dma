@@ -1,7 +1,8 @@
-use std::sync::Mutex;
+use std::{num::NonZeroU32, ops::Deref, sync::Mutex};
 
 use crate::*;
 
+#[derive(Debug)]
 pub enum WorkType {
     Send,
     Recv,
@@ -13,11 +14,11 @@ impl Default for WorkType {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Work {
     pub ty: WorkType,
-    pub bufs: Vec<BufferSlice>,
-    pub sender: Option<tokio::sync::oneshot::Sender<Result<u32>>>,
+    pub imm: Option<NonZeroU32>,
+    pub buf: Option<BufferSlice>,
 }
 
 pub struct WorkPool {
@@ -35,17 +36,18 @@ impl<'a> WorkRef<'a> {
         Self { pool, ptr: id as _ }
     }
 
-    pub fn release(self) -> usize {
-        let id = self.ptr;
-        std::mem::forget(self);
-        id
+    pub fn ptr(&self) -> usize {
+        self.ptr
+    }
+
+    pub fn release(self) {
+        std::mem::forget(self)
     }
 }
 
 impl Drop for WorkRef<'_> {
     fn drop(&mut self) {
-        self.bufs.clear();
-        self.sender = None;
+        self.buf = None;
         self.pool.put(self.ptr)
     }
 }
@@ -61,6 +63,12 @@ impl std::ops::Deref for WorkRef<'_> {
 impl std::ops::DerefMut for WorkRef<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *(self.ptr as *mut _) }
+    }
+}
+
+impl std::fmt::Debug for WorkRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
     }
 }
 
@@ -119,8 +127,9 @@ mod tests {
         drop(vec);
 
         let work = work_pool.get().unwrap();
-        assert!(work.bufs.is_empty());
-        let id = work.release();
+        assert!(work.buf.is_none());
+        let id = work.ptr();
+        work.release();
         let _ = WorkRef::new(&work_pool, id);
     }
 }

@@ -47,8 +47,8 @@ async fn main() -> std::result::Result<(), Box<dyn Error>> {
     println!("recv memory: {:#?}", recv_memory);
     recv_memory.as_mut().fill(0);
 
-    let result = recv_socket.recv(recv_memory).unwrap().await;
-    println!("result is {:#?}", result);
+    // let result = recv_socket.recv(recv_memory).unwrap().await;
+    // println!("result is {:#?}", result);
 
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
