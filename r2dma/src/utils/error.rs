@@ -23,6 +23,7 @@ pub enum ErrorKind {
     PollCompChannelFailed,
     SetNonBlockFail,
     WorkCompletionFail,
+    ChannelSendFail,
 }
 
 #[derive(Clone)]

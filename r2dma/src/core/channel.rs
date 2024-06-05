@@ -4,12 +4,11 @@ use nix::sys::{epoll::*, eventfd::*};
 use r2dma_sys::*;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc,
 };
 
 #[derive(Debug)]
 pub struct Channel {
-    sockets: Mutex<Vec<Arc<Socket>>>,
     epoll: Epoll,
     eventfd: EventFd,
     stopping: AtomicBool,
@@ -42,7 +41,6 @@ impl Channel {
         )?;
 
         Ok(Self {
-            sockets: Default::default(),
             epoll,
             eventfd,
             stopping: Default::default(),
@@ -102,16 +100,7 @@ impl Channel {
         });
 
         *cq_context = arc.as_ref() as *const _ as _;
-
-        let mut sockets = self.sockets.lock().unwrap();
-        sockets.push(arc.clone());
-        match arc.notify() {
-            Ok(_) => Ok(arc),
-            Err(err) => {
-                sockets.pop();
-                Err(err)
-            }
-        }
+        Ok(arc)
     }
 
     pub fn wake_up(&self) -> Result<()> {

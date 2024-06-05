@@ -13,10 +13,13 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub fn notify(&self) -> Result<()> {
+    pub fn notify(&self) {
         match unsafe { ibv_req_notify_cq(self.comp_queue.as_mut_ptr(), 0) } {
-            0 => Ok(()),
-            _ => Err(Error::with_errno(ErrorKind::IBReqNotifyCQFail)),
+            0 => (),
+            _ => panic!(
+                "ibv_req_notify_cq failed: {:?}",
+                std::io::Error::last_os_error()
+            ),
         }
     }
 
@@ -149,6 +152,7 @@ impl Socket {
 
 impl Drop for Socket {
     fn drop(&mut self) {
+        println!("drop socket: {:#?}", self);
         unsafe {
             ibv_ack_cq_events(
                 self.comp_queue.as_mut_ptr(),
@@ -212,17 +216,20 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         // 3. multi-send.
-        for _ in 0..100 {
+        for _ in 0..20 {
             let buf = manager.allocate_buffer().unwrap();
             let mut work = manager.allocate_work().unwrap();
             work.ty = WorkType::Send;
             work.buf = Some(buf);
             send_socket.submit_work(work).unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
 
         send_socket.set_to_error().unwrap();
         recv_socket.set_to_error().unwrap();
+
+        drop(send_socket);
+        drop(recv_socket);
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }

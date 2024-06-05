@@ -3,11 +3,15 @@ use nix::sys::epoll::EpollEvent;
 
 use crate::*;
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::mpsc;
 use std::sync::Arc;
 
-#[derive(Debug, Default)]
-pub struct Task;
+#[derive(Debug)]
+pub enum Task {
+    AddSocket(Arc<Socket>),
+}
 
 const N: usize = 64;
 
@@ -15,6 +19,8 @@ const N: usize = 64;
 pub struct EventLoop {
     pub buffer_pool: Arc<BufferPool>,
     pub work_pool: Arc<WorkPool>,
+    sockets: HashMap<u32, Arc<Socket>>,
+    to_be_deleted: HashSet<u32>,
     completions: [WorkCompletion; N],
 }
 
@@ -23,6 +29,8 @@ impl EventLoop {
         Self {
             buffer_pool: buffer_pool.clone(),
             work_pool: work_pool.clone(),
+            sockets: Default::default(),
+            to_be_deleted: Default::default(),
             completions: [(); N].map(|_| WorkCompletion::default()),
         }
     }
@@ -57,15 +65,29 @@ impl EventLoop {
                 }
             }
 
-            while let Ok(_task) = receiver.try_recv() {
-                // TODO(SF): handle user events.
+            while let Ok(task) = receiver.try_recv() {
+                match task {
+                    Task::AddSocket(socket) => self.add_socket(socket),
+                }
             }
         }
         tracing::info!("event_loop is stopped.");
     }
 
+    fn add_socket(&mut self, socket: Arc<Socket>) {
+        if !self.to_be_deleted.remove(&socket.queue_pair.qp_num) {
+            self.sockets.insert(socket.queue_pair.qp_num, socket);
+        }
+    }
+
+    fn remove_socket(&mut self, socket: &Socket) {
+        if self.sockets.remove(&socket.queue_pair.qp_num).is_none() {
+            self.to_be_deleted.insert(socket.queue_pair.qp_num);
+        }
+    }
+
     fn handle_work_completion(&mut self, socket: &Socket) {
-        socket.notify().unwrap();
+        socket.notify();
 
         loop {
             match socket.poll_completions(&mut self.completions) {
@@ -96,8 +118,7 @@ impl EventLoop {
 
                     let need_remove = socket.state.work_complete(wcs.len() as u64);
                     if need_remove {
-                        // TODO(SF): remove this socket.
-                        println!("remove socket: {:#?}", socket);
+                        return self.remove_socket(socket); // socket is invalid.
                     }
                 }
                 Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),

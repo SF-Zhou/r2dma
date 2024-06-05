@@ -16,7 +16,7 @@ pub use card::Card;
 pub use cards::Cards;
 pub use channel::Channel;
 pub use config::Config;
-pub use event_loop::EventLoop;
+pub use event_loop::{EventLoop, Task};
 pub use manager::Manager;
 pub use socket::Socket;
 pub use state::State;

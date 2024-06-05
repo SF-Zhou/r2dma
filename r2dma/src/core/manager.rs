@@ -7,6 +7,7 @@ use std::{
 #[derive(Debug)]
 pub struct Manager {
     threads: Vec<std::thread::JoinHandle<()>>,
+    senders: Vec<mpsc::Sender<Task>>,
     pub channels: Vec<Arc<Channel>>,
     buffer_pool: Arc<BufferPool>,
     pub cards: Arc<Cards>,
@@ -25,19 +26,22 @@ impl Manager {
             channels.push(Arc::new(Channel::new(card)?));
         }
 
+        let mut senders = vec![];
         let mut threads = vec![];
         for channel in &channels {
             let channel = channel.clone();
             let mut event_loop = EventLoop::new(&buffer_pool, &work_pool);
 
+            let (sender, receiver) = mpsc::channel();
+            senders.push(sender);
             threads.push(std::thread::spawn(move || {
-                let (_, receiver) = mpsc::sync_channel(1024);
                 event_loop.run(channel, receiver);
             }))
         }
 
         Ok(Self {
             threads,
+            senders,
             channels,
             buffer_pool,
             cards,
@@ -60,6 +64,13 @@ impl Manager {
             .first()
             .ok_or(Error::new(ErrorKind::IBDeviceNotFound))?;
         let socket = channel.create_socket(&self.config)?;
+
+        self.senders[0]
+            .send(Task::AddSocket(socket.clone()))
+            .unwrap(); // it's safe.
+        self.channels[0].wake_up()?;
+
+        socket.notify();
 
         for _ in 0..4 {
             let mut work = self.work_pool.get()?;

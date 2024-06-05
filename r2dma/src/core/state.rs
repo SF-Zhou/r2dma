@@ -135,5 +135,6 @@ mod tests {
     fn test_state_panic() {
         let state = State::default();
         state.work_complete(1);
+        state.work_complete(1);
     }
 }
