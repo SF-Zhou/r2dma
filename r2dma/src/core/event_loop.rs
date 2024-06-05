@@ -1,90 +1,61 @@
+use ibv::WorkCompletion;
+use nix::sys::epoll::EpollEvent;
+
 use crate::*;
 
-use nix::sys::{epoll::*, eventfd::*};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::sync::{mpsc, Mutex};
-
-#[derive(Debug, Default)]
-pub struct Task;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::mpsc;
+use std::sync::Arc;
 
 #[derive(Debug)]
+pub enum Task {
+    AddSocket(Arc<Socket>),
+}
+
+const N: usize = 64;
+
+#[derive(Debug, Clone)]
 pub struct EventLoop {
-    sockets: Mutex<Vec<Arc<Socket>>>,
-    epoll: Epoll,
-    eventfd: EventFd,
-    pub channel: Arc<Channel>,
-    stopping: AtomicBool,
-    pub card: Arc<Card>,
-    _buffer_pool: Arc<BufferPool>,
+    pub buffer_pool: Arc<BufferPool>,
     pub work_pool: Arc<WorkPool>,
+    sockets: HashMap<u32, Arc<Socket>>,
+    to_be_deleted: HashSet<u32>,
+    completions: [WorkCompletion; N],
 }
 
 impl EventLoop {
-    pub fn new(
-        card: &Arc<Card>,
-        buffer_pool: &Arc<BufferPool>,
-        work_pool: &Arc<WorkPool>,
-    ) -> Result<Arc<Self>> {
-        let epoll = Epoll::new(EpollCreateFlags::empty())?;
-        let eventfd = EventFd::from_flags(EfdFlags::EFD_NONBLOCK)?;
-        let channel = Arc::new(Channel::new(card)?);
-
-        epoll.add(
-            &eventfd,
-            EpollEvent::new(EpollFlags::EPOLLIN | EpollFlags::EPOLLET, 0),
-        )?;
-
-        epoll.add(
-            channel.fd(),
-            EpollEvent::new(EpollFlags::EPOLLIN | EpollFlags::EPOLLET, 1),
-        )?;
-
-        Ok(Arc::new(Self {
-            sockets: Default::default(),
-            epoll,
-            eventfd,
-            channel,
-            stopping: Default::default(),
-            card: card.clone(),
-            _buffer_pool: buffer_pool.clone(),
+    pub fn new(buffer_pool: &Arc<BufferPool>, work_pool: &Arc<WorkPool>) -> Self {
+        Self {
+            buffer_pool: buffer_pool.clone(),
             work_pool: work_pool.clone(),
-        }))
+            sockets: Default::default(),
+            to_be_deleted: Default::default(),
+            completions: [(); N].map(|_| WorkCompletion::default()),
+        }
     }
 
-    pub fn add_socket(&self, socket: Arc<Socket>) {
-        let mut sockets = self.sockets.lock().unwrap();
-        sockets.push(socket);
-    }
-
-    pub fn wake_up(&self) -> Result<()> {
-        self.eventfd.write(1)?;
-        Ok(())
-    }
-
-    pub fn stop(&self) -> Result<()> {
-        tracing::info!("event_loop is stopping...");
-        self.stopping.store(true, Ordering::Release);
-        self.wake_up()?;
-        Ok(())
-    }
-
-    pub fn run(&self, receiver: mpsc::Receiver<Task>) {
-        let mut events = vec![EpollEvent::empty(); 1024];
-        while !self.stopping.load(Ordering::Acquire) {
-            match self.epoll.wait(&mut events, EpollTimeout::NONE) {
-                Ok(n) => {
-                    for event in &events[..n] {
+    pub fn run(&mut self, channel: Arc<Channel>, receiver: mpsc::Receiver<Task>) {
+        let mut events = [(); N].map(|_| EpollEvent::empty());
+        while !channel.is_stopping() {
+            match channel.poll_events(&mut events) {
+                Ok(events) => {
+                    for event in events {
                         match event.data() {
                             0 => {
                                 // just wake up!
-                                let _ = self.eventfd.read();
+                                channel.on_wake_up();
                             }
-                            _ => {
-                                self.handle_channel_event();
-                            }
+                            _ => loop {
+                                match channel.poll_socket() {
+                                    Ok(None) => break,
+                                    Ok(Some(socket)) => self.handle_work_completion(socket),
+                                    Err(err) => {
+                                        tracing::error!("comp channel poll: {:?}", err);
+                                        break;
+                                    }
+                                }
+                            },
                         }
                     }
                 }
@@ -94,67 +65,64 @@ impl EventLoop {
                 }
             }
 
-            while let Ok(_task) = receiver.try_recv() {
-                // TODO(SF): handle user events.
+            while let Ok(task) = receiver.try_recv() {
+                match task {
+                    Task::AddSocket(socket) => self.add_socket(socket),
+                }
             }
         }
         tracing::info!("event_loop is stopped.");
     }
 
-    fn handle_channel_event(&self) {
-        loop {
-            match self.channel.poll() {
-                Ok(None) => break,
-                Ok(Some(socket)) => self.handle_work_completion(socket),
-                Err(err) => {
-                    tracing::error!("comp channel poll: {:?}", err);
-                    break;
-                }
-            }
+    fn add_socket(&mut self, socket: Arc<Socket>) {
+        if !self.to_be_deleted.remove(&socket.queue_pair.qp_num) {
+            self.sockets.insert(socket.queue_pair.qp_num, socket);
         }
     }
 
-    fn handle_work_completion(&self, socket: &Socket) {
-        if !socket.ready_to_error.load(Ordering::Acquire) {
-            socket.notify().unwrap();
+    fn remove_socket(&mut self, socket: &Socket) {
+        if self.sockets.remove(&socket.queue_pair.qp_num).is_none() {
+            self.to_be_deleted.insert(socket.queue_pair.qp_num);
         }
-        let mut wcs = [0u8; 16].map(|_| ibv::WorkCompletion::default());
-        let mut prepare_close = false;
-        let mut closed = false;
-        match socket.poll(&mut wcs) {
-            Ok(wcs) => {
-                for wc in wcs {
-                    let mut work = WorkRef::new(&self.work_pool, wc.wr_id as _);
-                    work.bufs.clear();
+    }
 
-                    match work.ty {
-                        WorkType::PrepareClose => {
-                            socket.ready_to_error.store(true, Ordering::Release);
-                            prepare_close = true;
+    fn handle_work_completion(&mut self, socket: &Socket) {
+        socket.notify();
+
+        loop {
+            match socket.poll_completions(&mut self.completions) {
+                Ok(wcs) => {
+                    if wcs.is_empty() {
+                        return;
+                    }
+
+                    let mut is_error = false;
+                    for wc in wcs {
+                        if wc.wr_id == 0 {
+                            continue; // wake up wr.
                         }
-                        WorkType::Close => {
-                            closed = true;
-                        }
-                        _ => {
-                            if let Some(sender) = work.sender.take() {
-                                let _ =
-                                    sender
-                                        .send(wc.result().map_err(|_| {
-                                            Error::new(ErrorKind::WorkCompletionFail)
-                                        }));
-                            }
-                        }
+
+                        let work = WorkRef::new(&self.work_pool, wc.wr_id as _);
+
+                        let result = match work.ty {
+                            WorkType::Send => socket.on_send(wc, work),
+                            WorkType::Recv => socket.on_recv(wc, work),
+                        };
+
+                        is_error |= result.is_err();
+                    }
+
+                    if is_error {
+                        let _ = socket.set_to_error();
+                    }
+
+                    let need_remove = socket.state.work_complete(wcs.len() as u64);
+                    if need_remove {
+                        return self.remove_socket(socket); // socket is invalid.
                     }
                 }
+                Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
             }
-            Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
-        }
-
-        if prepare_close {
-            socket.wake_up(WorkType::Close).unwrap();
-        }
-        if closed {
-            println!("socket closed: {:#?}", socket);
         }
     }
 }

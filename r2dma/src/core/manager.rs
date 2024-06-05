@@ -7,7 +7,8 @@ use std::{
 #[derive(Debug)]
 pub struct Manager {
     threads: Vec<std::thread::JoinHandle<()>>,
-    pub event_loops: Vec<Arc<EventLoop>>,
+    senders: Vec<mpsc::Sender<Task>>,
+    pub channels: Vec<Arc<Channel>>,
     buffer_pool: Arc<BufferPool>,
     pub cards: Arc<Cards>,
     work_pool: Arc<WorkPool>,
@@ -20,21 +21,28 @@ impl Manager {
         let buffer_pool = BufferPool::new(&cards, config.buffer_size, config.buffer_count)?;
         let work_pool = Arc::new(WorkPool::new(config.work_pool_size));
 
-        let mut threads = vec![];
-        let mut event_loops = vec![];
+        let mut channels = vec![];
         for card in cards.as_ref().deref() {
-            let event_loop = EventLoop::new(card, &buffer_pool, &work_pool)?;
-            event_loops.push(event_loop.clone());
+            channels.push(Arc::new(Channel::new(card)?));
+        }
 
+        let mut senders = vec![];
+        let mut threads = vec![];
+        for channel in &channels {
+            let channel = channel.clone();
+            let mut event_loop = EventLoop::new(&buffer_pool, &work_pool);
+
+            let (sender, receiver) = mpsc::channel();
+            senders.push(sender);
             threads.push(std::thread::spawn(move || {
-                let (_, receiver) = mpsc::sync_channel(1024);
-                event_loop.run(receiver);
+                event_loop.run(channel, receiver);
             }))
         }
 
         Ok(Self {
             threads,
-            event_loops,
+            senders,
+            channels,
             buffer_pool,
             cards,
             work_pool,
@@ -51,16 +59,32 @@ impl Manager {
     }
 
     pub fn create_socket(&self) -> Result<Arc<Socket>> {
-        let event_loop = self
-            .event_loops
+        let channel = self
+            .channels
             .first()
             .ok_or(Error::new(ErrorKind::IBDeviceNotFound))?;
-        Socket::create(event_loop, &self.config)
+        let socket = channel.create_socket(&self.config)?;
+
+        self.senders[0]
+            .send(Task::AddSocket(socket.clone()))
+            .unwrap(); // it's safe.
+        self.channels[0].wake_up()?;
+
+        socket.notify();
+
+        for _ in 0..4 {
+            let mut work = self.work_pool.get()?;
+            work.ty = WorkType::Recv;
+            work.buf = Some(self.buffer_pool.get()?);
+            socket.submit_work(work)?;
+        }
+
+        Ok(socket)
     }
 
     pub fn stop_and_join(&mut self) -> Result<()> {
-        for event_loop in &self.event_loops {
-            event_loop.stop()?;
+        for channel in &self.channels {
+            channel.stop()?;
         }
 
         for thread in self.threads.drain(..) {

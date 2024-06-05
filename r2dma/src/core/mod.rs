@@ -7,6 +7,7 @@ mod config;
 mod event_loop;
 mod manager;
 mod socket;
+mod state;
 mod work;
 
 pub use buffer::Buffer;
@@ -15,7 +16,8 @@ pub use card::Card;
 pub use cards::Cards;
 pub use channel::Channel;
 pub use config::Config;
-pub use event_loop::EventLoop;
+pub use event_loop::{EventLoop, Task};
 pub use manager::Manager;
 pub use socket::Socket;
-pub use work::{Work, WorkPool, WorkRef, WorkType};
+pub use state::State;
+pub use work::{Submittable, Work, WorkPool, WorkRef, WorkType};

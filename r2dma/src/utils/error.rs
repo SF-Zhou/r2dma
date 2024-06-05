@@ -17,11 +17,13 @@ pub enum ErrorKind {
     IBRegMRFail,
     IBPostSendFail,
     IBPostRecvFail,
+    IBSocketError,
     AllocateBufferFail,
     AllocateWorkFail,
     PollCompChannelFailed,
     SetNonBlockFail,
     WorkCompletionFail,
+    ChannelSendFail,
 }
 
 #[derive(Clone)]

@@ -1,12 +1,11 @@
-use std::sync::Mutex;
+use std::{num::NonZeroU32, ops::Deref, sync::Mutex};
 
 use crate::*;
 
+#[derive(Debug)]
 pub enum WorkType {
     Send,
     Recv,
-    PrepareClose,
-    Close,
 }
 
 impl Default for WorkType {
@@ -15,11 +14,26 @@ impl Default for WorkType {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Work {
     pub ty: WorkType,
-    pub bufs: Vec<BufferSlice>,
-    pub sender: Option<tokio::sync::oneshot::Sender<Result<u32>>>,
+    pub imm: Option<NonZeroU32>,
+    pub buf: Option<BufferSlice>,
+}
+
+pub trait Submittable {
+    fn wr_id(&self) -> u64;
+    fn release(self);
+}
+
+impl Submittable for Work {
+    fn wr_id(&self) -> u64 {
+        0
+    }
+
+    fn release(self) {
+        drop(self)
+    }
 }
 
 pub struct WorkPool {
@@ -33,22 +47,40 @@ pub struct WorkRef<'a> {
 }
 
 impl<'a> WorkRef<'a> {
-    pub fn new(pool: &'a WorkPool, id: usize) -> Self {
-        Self { pool, ptr: id as _ }
+    pub fn new(pool: &'a WorkPool, wr_id: u64) -> Self {
+        Self {
+            pool,
+            ptr: wr_id as _,
+        }
+    }
+}
+
+impl Submittable for WorkRef<'_> {
+    fn wr_id(&self) -> u64 {
+        self.ptr as _
     }
 
-    pub fn release(self) -> usize {
-        let id = self.ptr;
-        std::mem::forget(self);
-        id
+    fn release(self) {
+        std::mem::forget(self)
     }
 }
 
 impl Drop for WorkRef<'_> {
     fn drop(&mut self) {
-        self.bufs.clear();
-        self.sender = None;
+        self.buf = None;
         self.pool.put(self.ptr)
+    }
+}
+
+impl AsRef<Work> for Work {
+    fn as_ref(&self) -> &Work {
+        self
+    }
+}
+
+impl AsRef<Work> for WorkRef<'_> {
+    fn as_ref(&self) -> &Work {
+        unsafe { &*(self.ptr as *const _) }
     }
 }
 
@@ -63,6 +95,12 @@ impl std::ops::Deref for WorkRef<'_> {
 impl std::ops::DerefMut for WorkRef<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *(self.ptr as *mut _) }
+    }
+}
+
+impl std::fmt::Debug for WorkRef<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
     }
 }
 
@@ -121,8 +159,9 @@ mod tests {
         drop(vec);
 
         let work = work_pool.get().unwrap();
-        assert!(work.bufs.is_empty());
-        let id = work.release();
+        assert!(work.buf.is_none());
+        let id = work.wr_id();
+        work.release();
         let _ = WorkRef::new(&work_pool, id);
     }
 }

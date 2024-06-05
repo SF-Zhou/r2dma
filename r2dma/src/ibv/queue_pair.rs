@@ -85,6 +85,17 @@ impl QueuePair {
         self.modify_qp(&mut attr, mask)
     }
 
+    pub fn set_to_error(&self) -> Result<()> {
+        let mut attr = ibv_qp_attr {
+            qp_state: ibv_qp_state::IBV_QPS_ERR,
+            ..Default::default()
+        };
+
+        let mask = ibv_qp_attr_mask::IBV_QP_STATE;
+
+        self.modify_qp(&mut attr, mask)
+    }
+
     fn modify_qp(&self, attr: &mut ibv_qp_attr, mask: ibv_qp_attr_mask) -> Result<()> {
         let ret = unsafe { ibv_modify_qp(self.as_mut_ptr(), attr, mask.0 as _) };
         if ret == 0_i32 {

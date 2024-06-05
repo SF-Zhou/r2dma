@@ -61,7 +61,6 @@ impl std::fmt::Debug for BufferPool {
     }
 }
 
-#[derive(Debug)]
 pub struct BufferSlice {
     pool: Arc<BufferPool>,
     i: u32,
@@ -77,7 +76,7 @@ impl BufferSlice {
         }
     }
 
-    pub fn length(&self) -> usize {
+    pub fn size(&self) -> usize {
         self.pool.size
     }
 
@@ -93,7 +92,7 @@ impl BufferSlice {
 impl std::convert::AsRef<[u8]> for BufferSlice {
     fn as_ref(&self) -> &[u8] {
         let memory_region = &*self.pool.bufs[self.i as usize];
-        let size = self.length();
+        let size = self.size();
         let base = self.j as usize * size;
         unsafe { std::slice::from_raw_parts(memory_region.addr.byte_add(base) as _, size) }
     }
@@ -102,9 +101,16 @@ impl std::convert::AsRef<[u8]> for BufferSlice {
 impl std::convert::AsMut<[u8]> for BufferSlice {
     fn as_mut(&mut self) -> &mut [u8] {
         let memory_region = &*self.pool.bufs[self.i as usize];
-        let size = self.length();
+        let size = self.size();
         let base = self.j as usize * size;
         unsafe { std::slice::from_raw_parts_mut(memory_region.addr.byte_add(base) as _, size) }
+    }
+}
+
+impl std::fmt::Debug for BufferSlice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let len = self.size();
+        f.debug_struct("BufferSlice").field("len", &len).finish()
     }
 }
 
