@@ -1,3 +1,5 @@
+use r2dma_sys::ibv_wc_status;
+
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorKind {
     IOError,
@@ -18,6 +20,7 @@ pub enum ErrorKind {
     IBPostSendFail,
     IBPostRecvFail,
     IBSocketError,
+    IBWorkRequestFail,
     AllocateBufferFail,
     AllocateWorkFail,
     PollCompChannelFailed,
@@ -51,6 +54,12 @@ impl Error {
 impl From<nix::Error> for Error {
     fn from(error: nix::Error) -> Self {
         Self(ErrorKind::IOError, Some(format!("errno: {}", error)))
+    }
+}
+
+impl From<ibv_wc_status> for Error {
+    fn from(value: ibv_wc_status) -> Self {
+        Self(ErrorKind::IBWorkRequestFail, Some(format!("{:?}", value)))
     }
 }
 

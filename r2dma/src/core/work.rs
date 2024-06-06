@@ -1,43 +1,22 @@
-use std::{num::NonZeroU32, ops::Deref, sync::Mutex};
-
 use crate::*;
-
-#[derive(Debug)]
-pub enum WorkType {
-    Send,
-    Recv,
-}
-
-impl Default for WorkType {
-    fn default() -> Self {
-        Self::Send
-    }
-}
+use r2dma_sys::*;
+use std::{ops::Deref, sync::Mutex};
 
 #[derive(Default, Debug)]
 pub struct Work {
-    pub ty: WorkType,
-    pub imm: Option<NonZeroU32>,
+    pub recv: bool,
     pub buf: Option<BufferSlice>,
 }
 
 pub trait Submittable {
-    fn wr_id(&self) -> u64;
+    fn sge(&self) -> ibv_sge;
+    fn wr_id(&self) -> WorkRequestId;
     fn release(self);
-}
-
-impl Submittable for Work {
-    fn wr_id(&self) -> u64 {
-        0
-    }
-
-    fn release(self) {
-        drop(self)
-    }
 }
 
 pub struct WorkPool {
     _vec: Vec<Work>,
+    base: usize,
     pool: Mutex<Vec<usize>>,
 }
 
@@ -47,17 +26,29 @@ pub struct WorkRef<'a> {
 }
 
 impl<'a> WorkRef<'a> {
-    pub fn new(pool: &'a WorkPool, wr_id: u64) -> Self {
+    pub fn new(pool: &'a WorkPool, off: u32) -> Self {
         Self {
             pool,
-            ptr: wr_id as _,
+            ptr: pool.base + off as usize,
         }
     }
 }
 
 impl Submittable for WorkRef<'_> {
-    fn wr_id(&self) -> u64 {
-        self.ptr as _
+    fn sge(&self) -> ibv_sge {
+        self.buf.as_ref().map_or(ibv_sge::default(), |buf| ibv_sge {
+            addr: buf.as_ref().as_ptr() as u64,
+            length: buf.as_ref().len() as u32,
+            lkey: buf.lkey(),
+        })
+    }
+
+    fn wr_id(&self) -> WorkRequestId {
+        let off = (self.ptr - self.pool.base) as u32;
+        match self.recv {
+            true => WorkRequestId::RecvData(off),
+            false => WorkRequestId::SendData(off),
+        }
     }
 
     fn release(self) {
@@ -68,13 +59,8 @@ impl Submittable for WorkRef<'_> {
 impl Drop for WorkRef<'_> {
     fn drop(&mut self) {
         self.buf = None;
+        self.recv = false;
         self.pool.put(self.ptr)
-    }
-}
-
-impl AsRef<Work> for Work {
-    fn as_ref(&self) -> &Work {
-        self
     }
 }
 
@@ -88,7 +74,7 @@ impl std::ops::Deref for WorkRef<'_> {
     type Target = Work;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*(self.ptr as *mut _) }
+        self.as_ref()
     }
 }
 
@@ -104,6 +90,34 @@ impl std::fmt::Debug for WorkRef<'_> {
     }
 }
 
+pub struct AsyncWork<T: Submittable + Sized>(pub T);
+
+impl<T: Submittable + Sized> Submittable for AsyncWork<T> {
+    fn sge(&self) -> ibv_sge {
+        Default::default()
+    }
+
+    fn wr_id(&self) -> WorkRequestId {
+        WorkRequestId::send_msg(self.0.wr_id())
+    }
+
+    fn release(self) {
+        self.0.release()
+    }
+}
+
+impl Submittable for WorkRequestId {
+    fn sge(&self) -> ibv_sge {
+        ibv_sge::default()
+    }
+
+    fn wr_id(&self) -> WorkRequestId {
+        *self
+    }
+
+    fn release(self) {}
+}
+
 impl WorkPool {
     pub fn new(size: usize) -> Self {
         let mut vec = Vec::with_capacity(size);
@@ -115,6 +129,7 @@ impl WorkPool {
 
         Self {
             _vec: vec,
+            base: pool[0],
             pool: Mutex::new(pool),
         }
     }
@@ -162,6 +177,9 @@ mod tests {
         assert!(work.buf.is_none());
         let id = work.wr_id();
         work.release();
-        let _ = WorkRef::new(&work_pool, id);
+        match id {
+            WorkRequestId::SendData(id) => WorkRef::new(&work_pool, id),
+            _ => panic!(),
+        };
     }
 }

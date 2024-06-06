@@ -9,6 +9,7 @@ mod manager;
 mod socket;
 mod state;
 mod work;
+mod wr_id;
 
 pub use buffer::Buffer;
 pub use buffer_pool::{BufferPool, BufferSlice};
@@ -20,4 +21,5 @@ pub use event_loop::{EventLoop, Task};
 pub use manager::Manager;
 pub use socket::Socket;
 pub use state::State;
-pub use work::{Submittable, Work, WorkPool, WorkRef, WorkType};
+pub use work::{AsyncWork, Submittable, Work, WorkPool, WorkRef};
+pub use wr_id::WorkRequestId;
