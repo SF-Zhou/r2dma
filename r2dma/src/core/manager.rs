@@ -67,16 +67,13 @@ impl Manager {
 
         self.senders[0]
             .send(Task::AddSocket(socket.clone()))
-            .unwrap(); // it's safe.
+            .map_err(|e| Error::with_msg(ErrorKind::ChannelSendFail, e.to_string()))?;
         self.channels[0].wake_up()?;
-
-        socket.notify();
 
         for _ in 0..4 {
             let mut work = self.work_pool.get()?;
-            work.ty = WorkType::Recv;
             work.buf = Some(self.buffer_pool.get()?);
-            socket.submit_work(work)?;
+            socket.submit_recv_work(work)?;
         }
 
         Ok(socket)

@@ -2,9 +2,12 @@ use crate::*;
 use ibv::CompChannel;
 use nix::sys::{epoll::*, eventfd::*};
 use r2dma_sys::*;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    os::raw::c_void,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 #[derive(Debug)]
@@ -51,7 +54,7 @@ impl Channel {
 
     pub fn create_socket(self: &Arc<Self>, config: &Config) -> Result<Arc<Socket>> {
         let card = &self.card;
-        let (comp_queue, cq_context) = unsafe {
+        let comp_queue = ibv::CompQueue::new(unsafe {
             let comp_queue = ibv_create_cq(
                 card.context.as_mut_ptr(),
                 config.max_cqe as _,
@@ -62,9 +65,8 @@ impl Channel {
             if comp_queue.is_null() {
                 return Err(Error::with_errno(ErrorKind::IBCreateCQFail));
             }
-            (comp_queue, &mut (*comp_queue).cq_context)
-        };
-        let comp_queue = ibv::CompQueue::new(comp_queue);
+            comp_queue
+        });
 
         let mut attr = ibv_qp_init_attr {
             qp_context: std::ptr::null_mut(),
@@ -95,11 +97,9 @@ impl Channel {
             queue_pair,
             comp_queue,
             channel: self.clone(),
-            unack_events_count: Default::default(),
             state: Default::default(),
         });
 
-        *cq_context = arc.as_ref() as *const _ as _;
         Ok(arc)
     }
 
@@ -108,7 +108,8 @@ impl Channel {
         Ok(())
     }
 
-    pub fn on_wake_up(&self) {
+    #[inline(always)]
+    pub(super) fn on_wake_up(&self) {
         let _ = self.eventfd.read();
     }
 
@@ -130,12 +131,8 @@ impl Channel {
         }
     }
 
-    pub fn poll_socket(&self) -> Result<Option<&Socket>> {
-        match self.comp_channel.get_cq_event() {
-            Ok(cq_context) if cq_context.is_null() => Ok(None),
-            Ok(cq_context) => Ok(Some(Socket::from_cq_context(cq_context))),
-            Err(err) => Err(err),
-        }
+    pub fn poll_socket(&self) -> Result<*mut c_void> {
+        self.comp_channel.get_cq_event()
     }
 }
 
