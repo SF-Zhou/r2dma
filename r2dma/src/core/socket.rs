@@ -53,32 +53,34 @@ impl Socket {
             WorkID::Empty => {
                 0 // do nothing.
             }
-            WorkID::Box(b) if b.ty == WorkType::RECV => {
-                let mut wr = ibv_recv_wr {
-                    wr_id: u64::from(&work_id),
-                    next: std::ptr::null_mut(),
-                    sg_list,
-                    num_sge,
-                };
-                let mut bad_wr = std::ptr::null_mut();
-                unsafe { ibv_post_recv(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) }
-            }
-            WorkID::Box(b) if b.ty == WorkType::SEND => {
-                let mut wr = ibv_send_wr {
-                    wr_id: u64::from(&work_id),
-                    sg_list,
-                    num_sge,
-                    opcode: ibv_wr_opcode::IBV_WR_SEND,
-                    send_flags: ibv_send_flags::IBV_SEND_SIGNALED.0,
-                    ..Default::default()
-                };
-                let mut bad_wr = std::ptr::null_mut();
-                unsafe { ibv_post_send(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) }
-            }
-            WorkID::Box(_b) => {
-                // TODO(SF): other job type.
-                0
-            }
+            WorkID::Box(b) => match b.ty {
+                WorkType::SEND => {
+                    let mut wr = ibv_send_wr {
+                        wr_id: u64::from(&work_id),
+                        sg_list,
+                        num_sge,
+                        opcode: ibv_wr_opcode::IBV_WR_SEND,
+                        send_flags: ibv_send_flags::IBV_SEND_SIGNALED.0,
+                        ..Default::default()
+                    };
+                    let mut bad_wr = std::ptr::null_mut();
+                    unsafe { ibv_post_send(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) }
+                }
+                WorkType::RECV => {
+                    let mut wr = ibv_recv_wr {
+                        wr_id: u64::from(&work_id),
+                        next: std::ptr::null_mut(),
+                        sg_list,
+                        num_sge,
+                    };
+                    let mut bad_wr = std::ptr::null_mut();
+                    unsafe { ibv_post_recv(self.queue_pair.as_mut_ptr(), &mut wr, &mut bad_wr) }
+                }
+                WorkType::READ => {
+                    // TODO(SF): handle read job.
+                    todo!()
+                }
+            },
             WorkID::Imm(imm) => {
                 let mut wr = ibv_send_wr {
                     wr_id: u64::from(&work_id),
@@ -97,49 +99,56 @@ impl Socket {
             std::mem::forget(work_id);
             Ok(())
         } else {
-            // TODO(SF): notify event loop.
-            Err(Error::with_errno(ErrorKind::IBPostSendFail))
-        }
-    }
-
-    pub(super) fn apply_submit(&self) -> ApplyResult {
-        match self.state.apply_send() {
-            Some(index) => {
-                if self.state.check_send_index(index) {
-                    ApplyResult::Succ
-                } else {
-                    ApplyResult::Async { index }
+            match work_id {
+                WorkID::Empty => (),
+                WorkID::Imm(_) => {
+                    self.state.send_fail();
                 }
+                WorkID::Box(b) => match b.ty {
+                    WorkType::SEND => self.state.send_fail(),
+                    WorkType::RECV => self.state.recv_complete(),
+                    WorkType::READ => self.state.read_fail(),
+                },
             }
-            None => ApplyResult::Error,
+            self.set_to_error();
+            Err(Error::with_errno(ErrorKind::IBPostSendFail))
         }
     }
 
     pub fn submit_work<W: Into<WorkID>>(&self, work: W) -> Result<()> {
         let work_id: WorkID = work.into();
-        match self.apply_submit() {
-            ApplyResult::Succ => self.submit_work_id(work_id),
-            ApplyResult::Async { index } => {
-                self.channel
-                    .sender
-                    .send(Task::AsyncSendWork {
+        match self.state.apply_send() {
+            Some(index) => {
+                if self.state.check_send_index(index) {
+                    self.submit_work_id(work_id)
+                } else {
+                    // the socket remains valid until the task is completed.
+                    self.send_task(Task::AsyncSendWork {
                         qp_num: self.queue_pair.qp_num,
                         work: WaitingWork { index, work_id },
                     })
-                    .unwrap();
-                self.channel.wake_up()
+                }
             }
-            ApplyResult::Error => Err(Error::new(ErrorKind::IBSocketError)),
+            None => Err(Error::new(ErrorKind::IBSocketError)),
         }
     }
 
-    pub fn set_to_error(&self) -> Result<()> {
-        let need_send_empty_wr = self.state.set_error();
-        let result = self.queue_pair.set_to_error();
-        if need_send_empty_wr {
-            // TODO(SF): send a notification.
-        }
-        result
+    pub(super) fn submit_recv<W: Into<WorkID>>(&self, work: W) -> Result<()> {
+        self.state.apply_recv();
+        self.submit_work_id(work.into())
+    }
+
+    pub fn set_to_error(&self) {
+        self.state.set_error();
+        self.queue_pair.set_to_error();
+        let _ = self.send_task(Task::WakeUpSocket {
+            qp_num: self.queue_pair.qp_num,
+        });
+    }
+
+    fn send_task(&self, task: Task) -> Result<()> {
+        self.channel.sender.send(task).unwrap();
+        self.channel.wake_up()
     }
 }
 
@@ -211,10 +220,15 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        println!("{:#?}", send_socket);
         println!(
             "elpased: {}us",
             std::time::Instant::now().duration_since(start).as_micros()
         );
+
+        // 4. set to error.
+        send_socket.set_to_error();
+        drop(send_socket);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        println!("finished!");
     }
 }

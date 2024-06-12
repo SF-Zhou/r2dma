@@ -20,6 +20,6 @@ pub use config::Config;
 pub use event_loop::{EventLoop, Task, WaitingWork};
 pub use manager::Manager;
 pub use socket::Socket;
-pub use state::{ApplyResult, State};
+pub use state::State;
 pub use work_id::{Work, WorkID, WorkType};
 pub use work_pool::WorkPool;

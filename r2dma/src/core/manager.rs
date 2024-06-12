@@ -64,19 +64,26 @@ impl Manager {
             .sender
             .send(Task::AddSocket(socket.clone()))
             .map_err(|e| Error::with_msg(ErrorKind::ChannelSendFail, e.to_string()))?;
-        self.channels[0].wake_up()?;
 
-        for _ in 0..18 {
-            let mut work = self.work_pool.get()?;
-            work.ty = WorkType::RECV;
-            work.buf = Some(self.buffer_pool.get()?);
-            socket.submit_work_id(work.into())?;
+        let block = || -> Result<()> {
+            channel.wake_up()?;
+            for _ in 0..18 {
+                let mut work = self.work_pool.get()?;
+                work.ty = WorkType::RECV;
+                work.buf = Some(self.buffer_pool.get()?);
+                socket.submit_recv(work)?;
+            }
+            Ok(())
+        };
+        if block().is_err() {
+            socket.set_to_error();
         }
 
         Ok(socket)
     }
 
     pub fn stop_and_join(&mut self) -> Result<()> {
+        // TODO(SF): release receiving buffers.
         for channel in &self.channels {
             channel.stop()?;
         }

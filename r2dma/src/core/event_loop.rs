@@ -20,6 +20,8 @@ pub struct WaitingWork {
 pub enum Task {
     AddSocket(Arc<Socket>),
     AsyncSendWork { qp_num: u32, work: WaitingWork },
+    // wake up by qp number. it's ok if a brand new socket is awakened.
+    WakeUpSocket { qp_num: u32 },
 }
 
 const N: usize = 64;
@@ -39,7 +41,7 @@ struct SocketWrapper {
 }
 
 impl SocketWrapper {
-    pub fn notify(&self) {
+    fn notify(&self) {
         match unsafe { ibv_req_notify_cq(self.socket.comp_queue.as_mut_ptr(), 0) } {
             0 => (),
             _ => panic!(
@@ -68,26 +70,30 @@ impl SocketWrapper {
         }
     }
 
-    pub fn on_send_data(&self, wc: &WorkCompletion, work_id: WorkID) -> Result<()> {
+    fn on_send_data(&self, wc: &WorkCompletion, work_id: WorkID) -> Result<()> {
         tracing::info!("on send: {wc:#?}, work: {work_id:?}");
 
         wc.result()?;
         Ok(())
     }
 
-    pub fn on_send_imm(&self, wc: &WorkCompletion, imm: u32) -> Result<()> {
+    fn on_send_imm(&self, wc: &WorkCompletion, imm: u32) -> Result<()> {
         tracing::info!("on send: {wc:#?}, work: {imm:?}");
 
         wc.result()?;
         Ok(())
     }
 
-    pub fn on_recv_data(&mut self, wc: &WorkCompletion, work_id: WorkID) -> Result<()> {
+    fn on_recv_data(&mut self, wc: &WorkCompletion, work_id: WorkID) -> Result<()> {
         if let Some(ack) = wc.imm() {
             self.remote_completion += ack;
         }
 
-        self.socket.submit_work_id(work_id)?; // re-submit to receive again.
+        if self.socket.state.is_ok() {
+            self.socket.submit_work_id(work_id)?; // re-submit to receive again.
+        } else {
+            self.socket.state.recv_complete();
+        }
         self.remote_notification += 1;
 
         Ok(())
@@ -99,6 +105,7 @@ impl Drop for SocketWrapper {
         unsafe {
             ibv_ack_cq_events(self.socket.comp_queue.as_mut_ptr(), self.unack_events_count);
         }
+        println!("drop {:#?}", self);
     }
 }
 
@@ -148,15 +155,17 @@ impl EventLoop {
                     } => {
                         if let Some(wrapper) = sockets.get_mut(&qp_num) {
                             if wrapper.socket.state.check_send_index(index) {
-                                match wrapper.socket.submit_work_id(work_id) {
-                                    Ok(_) => (),
-                                    Err(_) => {
-                                        let _ = wrapper.socket.set_to_error();
-                                    }
-                                }
+                                let _ = wrapper.socket.submit_work_id(work_id);
                             } else {
                                 wrapper.waiting_send_indexs.insert(index);
                                 wrapper.waiting_send_works.push_back(work_id);
+                            }
+                        }
+                    }
+                    Task::WakeUpSocket { qp_num } => {
+                        if let Some(wrapper) = sockets.get_mut(&qp_num) {
+                            if wrapper.socket.state.ready_to_remove() {
+                                sockets.remove(&qp_num);
                             }
                         }
                     }
@@ -255,7 +264,7 @@ impl EventLoop {
                     }
 
                     if is_error {
-                        let _ = wrapper.socket.set_to_error();
+                        wrapper.socket.set_to_error();
                     }
 
                     if wcs.len() < self.completions.len() {
@@ -276,12 +285,7 @@ impl EventLoop {
             let state = &wrapper.socket.state;
             if let Some(index) = state.apply_send() {
                 if state.check_notify_index(index) {
-                    match wrapper.socket.submit_work_id(WorkID::Imm(n)) {
-                        Ok(_) => (),
-                        Err(_) => {
-                            let _ = wrapper.socket.set_to_error();
-                        }
-                    }
+                    let _ = wrapper.socket.submit_work_id(WorkID::Imm(n));
                 } else {
                     wrapper.waiting_send_indexs.insert(index);
                     wrapper.waiting_remote_notification = Some(n);
@@ -299,29 +303,18 @@ impl EventLoop {
             let mut split = wrapper.waiting_send_indexs.split_off(&current_bound); // [start, bound) + [bound, end)
             std::mem::swap(&mut split, &mut wrapper.waiting_send_indexs);
 
-            let mut count = split.len();
-            if count > 0 && wrapper.waiting_remote_notification.is_some() {
-                count -= 1;
-                let n = wrapper.waiting_remote_notification.take().unwrap();
-                match wrapper.socket.submit_work_id(WorkID::Imm(n)) {
-                    Ok(_) => (),
-                    Err(_) => {
-                        let _ = wrapper.socket.set_to_error();
-                    }
+            let count = split.len();
+            if count > 0 {
+                if let Some(n) = wrapper.waiting_remote_notification.take() {
+                    wrapper.waiting_send_works.push_front(WorkID::Imm(n));
                 }
-            }
-
-            for _ in 0..count {
-                let work_id = wrapper.waiting_send_works.pop_front().unwrap();
-                match wrapper.socket.submit_work_id(work_id) {
-                    Ok(_) => (),
-                    Err(_) => {
-                        let _ = wrapper.socket.set_to_error();
-                    }
+                for _ in 0..count {
+                    let work_id = wrapper.waiting_send_works.pop_front().unwrap();
+                    let _ = wrapper.socket.submit_work_id(work_id);
                 }
             }
         }
 
-        false
+        wrapper.socket.state.ready_to_remove()
     }
 }
