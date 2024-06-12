@@ -1,6 +1,6 @@
+use super::verbs::*;
 use super::Endpoint;
 use crate::*;
-use r2dma_sys::*;
 
 pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
     | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0

@@ -1,5 +1,5 @@
+use crate::ibv::verbs::*;
 use crate::*;
-use r2dma_sys::*;
 use std::sync::Arc;
 
 pub struct Socket {

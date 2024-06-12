@@ -1,4 +1,4 @@
-use r2dma_sys::*;
+use super::verbs::*;
 
 #[derive(Copy, Clone, Default)]
 #[repr(transparent)]

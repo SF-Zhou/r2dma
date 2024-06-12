@@ -1,5 +1,5 @@
+use super::verbs::*;
 use crate::*;
-use r2dma_sys::*;
 
 pub type CompQueue = utils::Wrapper<ibv_cq>;
 

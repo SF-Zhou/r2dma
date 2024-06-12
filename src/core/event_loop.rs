@@ -1,7 +1,7 @@
+use crate::ibv::verbs::*;
 use crate::*;
 use ibv::WorkCompletion;
 use nix::sys::epoll::EpollEvent;
-use r2dma_sys::*;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::VecDeque;
