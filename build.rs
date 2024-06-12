@@ -11,12 +11,6 @@ fn main() {
     let mut include_paths = lib.include_paths.into_iter().collect::<HashSet<_>>();
     include_paths.insert(PathBuf::from("/usr/include"));
 
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let gen_path = out_path.join("verbs_inline.c");
-    let obj_path = out_path.join("verbs_inline.o");
-    let lib_path = out_path.join("libverbs_inline.a");
-
-    // 1. generate rust bindings.
     let mut builder = bindgen::Builder::default()
         .clang_args(include_paths.iter().map(|p| format!("-I{:?}", p)))
         .header_contents("header.h", "#include <infiniband/verbs.h>")
@@ -24,9 +18,6 @@ fn main() {
         .derive_debug(true)
         .derive_default(true)
         .generate_comments(false)
-        .generate_inline_functions(true)
-        .wrap_static_fns(true)
-        .wrap_static_fns_path(&gen_path)
         .prepend_enum_name(false)
         .formatter(bindgen::Formatter::Rustfmt)
         .size_t_is_usize(true)
@@ -35,19 +26,52 @@ fn main() {
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: false,
         })
-        .opaque_type("pthread_.*")
-        .blocklist_type("timespec")
-        .allowlist_function("ibv_.*")
-        .allowlist_type("ibv_.*")
-        .allowlist_type("ib_uverbs_access_flags")
-        .bitfield_enum("ib_uverbs_access_flags")
-        .bitfield_enum("ibv_.*_bits")
-        .bitfield_enum("ibv_.*_caps")
-        .bitfield_enum("ibv_.*_flags")
-        .bitfield_enum("ibv_.*_mask")
-        .bitfield_enum("ibv_pci_atomic_op_size")
-        .bitfield_enum("ibv_port_cap_flags2")
-        .bitfield_enum("ibv_rx_hash_fields");
+        .opaque_type("pthread_cond_t")
+        .opaque_type("pthread_mutex_t")
+        .allowlist_type("ibv_access_flags")
+        .allowlist_type("ibv_comp_channel")
+        .allowlist_type("ibv_context")
+        .allowlist_type("ibv_cq")
+        .allowlist_type("ibv_device")
+        .allowlist_type("ibv_gid")
+        .allowlist_type("ibv_mr")
+        .allowlist_type("ibv_pd")
+        .allowlist_type("ibv_port_attr")
+        .allowlist_type("ibv_qp")
+        .allowlist_type("ibv_qp_attr_mask")
+        .allowlist_type("ibv_qp_init_attr")
+        .allowlist_type("ibv_send_flags")
+        .allowlist_type("ibv_wc")
+        .allowlist_type("ibv_wc_flags")
+        .allowlist_type("ibv_wc_status")
+        .allowlist_function("ibv_ack_cq_events")
+        .allowlist_function("ibv_alloc_pd")
+        .allowlist_function("ibv_close_device")
+        .allowlist_function("ibv_create_comp_channel")
+        .allowlist_function("ibv_create_cq")
+        .allowlist_function("ibv_create_qp")
+        .allowlist_function("ibv_dealloc_pd")
+        .allowlist_function("ibv_dereg_mr")
+        .allowlist_function("ibv_destroy_comp_channel")
+        .allowlist_function("ibv_destroy_cq")
+        .allowlist_function("ibv_destroy_qp")
+        .allowlist_function("ibv_free_device_list")
+        .allowlist_function("ibv_get_cq_event")
+        .allowlist_function("ibv_get_device_guid")
+        .allowlist_function("ibv_get_device_list")
+        .allowlist_function("ibv_modify_qp")
+        .allowlist_function("ibv_req_notify_cq")
+        .allowlist_function("ibv_poll_cq")
+        .allowlist_function("ibv_post_recv")
+        .allowlist_function("ibv_post_send")
+        .allowlist_function("ibv_query_gid")
+        .allowlist_function("ibv_query_port")
+        .allowlist_function("ibv_open_device")
+        .allowlist_function("ibv_reg_mr")
+        .bitfield_enum("ibv_access_flags")
+        .bitfield_enum("ibv_send_flags")
+        .bitfield_enum("ibv_wc_flags")
+        .bitfield_enum("ibv_qp_attr_mask");
 
     for name in [
         "ibv_srq",
@@ -60,43 +84,9 @@ fn main() {
         builder = builder.no_copy(name).no_debug(name)
     }
 
-    let bindings = builder.generate().expect("Unable to generate bindings");
-
-    // 2. compile verbs_inline.
-    let clang_output = std::process::Command::new("clang")
-        .arg("-O2")
-        .arg("-c")
-        .arg("-o")
-        .arg(&obj_path)
-        .arg(&gen_path)
-        .args(["-include", "infiniband/verbs.h"])
-        .output()
-        .unwrap();
-    if !clang_output.status.success() {
-        panic!(
-            "Could not compile object file: {}",
-            String::from_utf8_lossy(&clang_output.stderr)
-        );
-    }
-
-    // 3. archive verbs_inline.
-    let lib_output = std::process::Command::new("ar")
-        .arg("rcs")
-        .arg(&lib_path)
-        .arg(&obj_path)
-        .output()
-        .unwrap();
-    if !lib_output.status.success() {
-        panic!(
-            "Could not emit library file: {}",
-            String::from_utf8_lossy(&lib_output.stderr)
-        );
-    }
-
-    println!("cargo:rustc-link-lib=static=verbs_inline");
-    println!("cargo:rustc-link-search=native={}", out_path.display());
-
-    bindings
-        .write_to_file(out_path.join("bindings.rs"))
+    builder
+        .generate()
+        .expect("Unable to generate bindings")
+        .write_to_file(PathBuf::from(env::var("OUT_DIR").unwrap()).join("bindings.rs"))
         .expect("Couldn't write bindings!");
 }

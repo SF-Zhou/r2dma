@@ -13,7 +13,6 @@ derse = "0"
 libc = "0"
 nix = { version = "0", features = ["event"] }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
 toml = "0"
 tracing = "0"
 tracing-subscriber = "0"
