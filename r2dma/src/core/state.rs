@@ -13,15 +13,10 @@ pub struct State {
     send_local_finished: AtomicU64,
     send_remote_finished: AtomicU64,
 
+    receiving: AtomicU64,
+
     read_index: AtomicU64,
     read_finished: AtomicU64,
-}
-
-#[derive(Debug)]
-pub enum ApplyResult {
-    Succ,
-    Error,
-    Async { index: u64 },
 }
 
 impl State {
@@ -34,6 +29,7 @@ impl State {
             send_index: Default::default(),
             send_local_finished: Default::default(),
             send_remote_finished: Default::default(),
+            receiving: Default::default(),
             read_index: Default::default(),
             read_finished: Default::default(),
         }
@@ -46,6 +42,14 @@ impl State {
         } else {
             None
         }
+    }
+
+    pub fn apply_recv(&self) {
+        self.receiving.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn recv_complete(&self) {
+        self.receiving.fetch_sub(1, Ordering::SeqCst);
     }
 
     pub fn apply_read(&self) -> Option<u64> {
@@ -69,23 +73,32 @@ impl State {
         index < self.read_finished.load(Ordering::Acquire) + self.max_read as u64
     }
 
+    pub fn send_fail(&self) {
+        self.send_local_finished.fetch_add(1, Ordering::SeqCst);
+        self.send_remote_finished.fetch_add(1, Ordering::SeqCst);
+    }
+
     pub fn send_local_complete(&self, cnt: u64) -> u64 {
-        self.send_local_finished.fetch_add(cnt, Ordering::Release) + cnt + self.max_send as u64
+        self.send_local_finished.fetch_add(cnt, Ordering::SeqCst) + cnt + self.max_send as u64
     }
 
     pub fn send_remote_complete(&self, cnt: u64) -> u64 {
-        self.send_remote_finished.fetch_add(cnt, Ordering::Release) + cnt + self.max_send as u64
+        self.send_remote_finished.fetch_add(cnt, Ordering::SeqCst) + cnt + self.max_send as u64
+    }
+
+    pub fn read_fail(&self) {
+        self.read_finished.fetch_add(1, Ordering::SeqCst);
     }
 
     pub fn read_complete(&self, cnt: u64) -> u64 {
-        self.read_finished.fetch_add(cnt, Ordering::Release) + cnt + self.max_read as u64
+        self.read_finished.fetch_add(cnt, Ordering::SeqCst) + cnt + self.max_read as u64
     }
 
     pub fn set_error(&self) -> bool {
         let bits = self.send_index.fetch_or(ERROR, Ordering::SeqCst);
         let first_set = if bits & ERROR == 0 {
             // first to set error.
-            self.last_send.store(bits, Ordering::SeqCst);
+            self.last_send.store(bits | ERROR, Ordering::SeqCst);
             true
         } else {
             false
@@ -98,6 +111,18 @@ impl State {
 
         first_set
     }
+
+    pub fn is_ok(&self) -> bool {
+        self.last_send.load(Ordering::Acquire) & ERROR == 0
+    }
+
+    pub fn ready_to_remove(&self) -> bool {
+        let bits = self.last_send.load(Ordering::Acquire);
+        bits & ERROR != 0
+            && (bits & !ERROR) == self.send_local_finished.load(Ordering::Acquire)
+            && self.last_read.load(Ordering::Acquire) == self.read_finished.load(Ordering::Acquire)
+            && self.receiving.load(Ordering::Acquire) == 0
+    }
 }
 
 impl std::fmt::Debug for State {
@@ -107,13 +132,14 @@ impl std::fmt::Debug for State {
         let send_index = bits & !ERROR;
         let send_local_finished = self.send_local_finished.load(Ordering::Acquire);
         let send_remote_finished = self.send_remote_finished.load(Ordering::Acquire);
+        let receiving = self.receiving.load(Ordering::Acquire);
         let read_index = self.read_index.load(Ordering::Acquire) & !ERROR;
         let read_finished = self.read_finished.load(Ordering::Acquire);
         let (last_send, last_read) = if is_ok {
             (None, None)
         } else {
             (
-                Some(self.last_send.load(Ordering::Acquire)),
+                Some(self.last_send.load(Ordering::Acquire) & !ERROR),
                 Some(self.last_read.load(Ordering::Acquire)),
             )
         };
@@ -122,6 +148,7 @@ impl std::fmt::Debug for State {
             .field("send_index", &send_index)
             .field("send_local_finished", &send_local_finished)
             .field("send_remote_finished", &send_remote_finished)
+            .field("receiving", &receiving)
             .field("read_index", &read_index)
             .field("read_finished", &read_finished)
             .field("last_send", &last_send)
