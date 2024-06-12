@@ -6,7 +6,7 @@ use std::{
     os::raw::c_void,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
 };
 
@@ -16,11 +16,12 @@ pub struct Channel {
     eventfd: EventFd,
     stopping: AtomicBool,
     comp_channel: ibv::CompChannel,
-    pub card: Arc<Card>,
+    pub(super) card: Arc<Card>,
+    pub(super) sender: mpsc::Sender<Task>,
 }
 
 impl Channel {
-    pub fn new(card: &Arc<Card>) -> Result<Self> {
+    pub fn new(card: &Arc<Card>, sender: mpsc::Sender<Task>) -> Result<Self> {
         let epoll = Epoll::new(EpollCreateFlags::empty())?;
         let eventfd = EventFd::from_flags(EfdFlags::EFD_NONBLOCK)?;
 
@@ -49,6 +50,7 @@ impl Channel {
             stopping: Default::default(),
             comp_channel,
             card: card.clone(),
+            sender,
         })
     }
 
@@ -93,14 +95,7 @@ impl Channel {
 
         queue_pair.init(1, 0)?;
 
-        let arc = Arc::new(Socket {
-            queue_pair,
-            comp_queue,
-            channel: self.clone(),
-            state: Default::default(),
-        });
-
-        Ok(arc)
+        Ok(Socket::new(queue_pair, comp_queue, self.clone()))
     }
 
     pub fn wake_up(&self) -> Result<()> {

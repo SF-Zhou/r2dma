@@ -7,7 +7,6 @@ use std::{
 #[derive(Debug)]
 pub struct Manager {
     threads: Vec<std::thread::JoinHandle<()>>,
-    senders: Vec<mpsc::Sender<Task>>,
     pub channels: Vec<Arc<Channel>>,
     buffer_pool: Arc<BufferPool>,
     pub cards: Arc<Cards>,
@@ -22,18 +21,15 @@ impl Manager {
         let work_pool = Arc::new(WorkPool::new(config.work_pool_size));
 
         let mut channels = vec![];
-        for card in cards.as_ref().deref() {
-            channels.push(Arc::new(Channel::new(card)?));
-        }
-
-        let mut senders = vec![];
         let mut threads = vec![];
-        for channel in &channels {
-            let channel = channel.clone();
+        for card in cards.as_ref().deref() {
+            let (sender, receiver) = mpsc::channel();
+
+            let channel = Arc::new(Channel::new(card, sender)?);
+            channels.push(channel.clone());
+
             let mut event_loop = EventLoop::new(&buffer_pool, &work_pool);
 
-            let (sender, receiver) = mpsc::channel();
-            senders.push(sender);
             threads.push(std::thread::spawn(move || {
                 event_loop.run(channel, receiver);
             }))
@@ -41,7 +37,6 @@ impl Manager {
 
         Ok(Self {
             threads,
-            senders,
             channels,
             buffer_pool,
             cards,
@@ -54,7 +49,7 @@ impl Manager {
         self.buffer_pool.get()
     }
 
-    pub fn allocate_work(&self) -> Result<WorkRef> {
+    pub fn allocate_work(&self) -> Result<Box<Work>> {
         self.work_pool.get()
     }
 
@@ -65,15 +60,17 @@ impl Manager {
             .ok_or(Error::new(ErrorKind::IBDeviceNotFound))?;
         let socket = channel.create_socket(&self.config)?;
 
-        self.senders[0]
+        channel
+            .sender
             .send(Task::AddSocket(socket.clone()))
             .map_err(|e| Error::with_msg(ErrorKind::ChannelSendFail, e.to_string()))?;
         self.channels[0].wake_up()?;
 
-        for _ in 0..4 {
+        for _ in 0..18 {
             let mut work = self.work_pool.get()?;
+            work.ty = WorkType::RECV;
             work.buf = Some(self.buffer_pool.get()?);
-            socket.submit_recv_work(work)?;
+            socket.submit_work_id(work.into())?;
         }
 
         Ok(socket)

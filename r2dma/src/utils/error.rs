@@ -27,6 +27,7 @@ pub enum ErrorKind {
     SetNonBlockFail,
     WorkCompletionFail,
     ChannelSendFail,
+    ApplySubmitFail,
 }
 
 #[derive(Clone)]

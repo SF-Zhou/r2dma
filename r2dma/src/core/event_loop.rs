@@ -2,14 +2,24 @@ use crate::*;
 use ibv::WorkCompletion;
 use nix::sys::epoll::EpollEvent;
 use r2dma_sys::*;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::VecDeque;
+
 use std::pin::Pin;
 use std::sync::mpsc;
 use std::sync::Arc;
 
 #[derive(Debug)]
+pub struct WaitingWork {
+    pub index: u64,
+    pub work_id: WorkID,
+}
+
+#[derive(Debug)]
 pub enum Task {
     AddSocket(Arc<Socket>),
+    AsyncSendWork { qp_num: u32, work: WaitingWork },
 }
 
 const N: usize = 64;
@@ -18,8 +28,13 @@ const N: usize = 64;
 struct SocketWrapper {
     socket: Arc<Socket>,
     qp_num: u32,
-    waiting: Vec<WorkRequestId>,
-    unack_recv_count: u32,
+    waiting_send_indexs: BTreeSet<u64>,
+    waiting_send_works: VecDeque<WorkID>,
+    waiting_remote_notification: Option<u32>,
+
+    remote_completion: u32,
+    remote_notification: u32,
+
     unack_events_count: u32,
 }
 
@@ -53,8 +68,8 @@ impl SocketWrapper {
         }
     }
 
-    pub fn on_send_data(&self, wc: &WorkCompletion, work: WorkRef) -> Result<()> {
-        tracing::info!("on send: {wc:#?}, work: {work:?}");
+    pub fn on_send_data(&self, wc: &WorkCompletion, work_id: WorkID) -> Result<()> {
+        tracing::info!("on send: {wc:#?}, work: {work_id:?}");
 
         wc.result()?;
         Ok(())
@@ -67,22 +82,13 @@ impl SocketWrapper {
         Ok(())
     }
 
-    pub fn on_recv_data(&mut self, wc: &WorkCompletion, work: WorkRef) -> Result<()> {
-        tracing::info!("on send: {wc:#?}, work: {work:?}");
-
+    pub fn on_recv_data(&mut self, wc: &WorkCompletion, work_id: WorkID) -> Result<()> {
         if let Some(ack) = wc.imm() {
-            self.socket.state.recv_ack(ack);
+            self.remote_completion += ack;
         }
 
-        self.socket.submit_recv_work(work)?; // re-submit to receive again.
-
-        // ack recv.
-        self.unack_recv_count += 1;
-        if self.unack_recv_count >= 4 {
-            let w = WorkRequestId::SendImm(self.unack_recv_count);
-            self.socket.submit_send_work(w)?;
-            self.unack_recv_count = 0;
-        }
+        self.socket.submit_work_id(work_id)?; // re-submit to receive again.
+        self.remote_notification += 1;
 
         Ok(())
     }
@@ -93,7 +99,6 @@ impl Drop for SocketWrapper {
         unsafe {
             ibv_ack_cq_events(self.socket.comp_queue.as_mut_ptr(), self.unack_events_count);
         }
-        println!("drop socket: {self:#?}");
     }
 }
 
@@ -101,21 +106,22 @@ impl Drop for SocketWrapper {
 pub struct EventLoop {
     pub buffer_pool: Arc<BufferPool>,
     pub work_pool: Arc<WorkPool>,
-    sockets: HashMap<u32, Pin<Box<SocketWrapper>>>,
     completions: [WorkCompletion; N],
 }
+
+type SocketsMap = HashMap<u32, Pin<Box<SocketWrapper>>>;
 
 impl EventLoop {
     pub fn new(buffer_pool: &Arc<BufferPool>, work_pool: &Arc<WorkPool>) -> Self {
         Self {
             buffer_pool: buffer_pool.clone(),
             work_pool: work_pool.clone(),
-            sockets: Default::default(),
             completions: [(); N].map(|_| WorkCompletion::default()),
         }
     }
 
     pub fn run(&mut self, channel: Arc<Channel>, receiver: mpsc::Receiver<Task>) {
+        let mut sockets = SocketsMap::default();
         let mut events = [(); N].map(|_| EpollEvent::empty());
         while !channel.is_stopping() {
             match channel.poll_events(&mut events) {
@@ -123,7 +129,7 @@ impl EventLoop {
                     for event in events {
                         match event.data() {
                             0 => channel.on_wake_up(),
-                            _ => self.handle_cq_events(&channel),
+                            _ => self.handle_cq_events(&channel, &mut sockets),
                         }
                     }
                 }
@@ -135,14 +141,32 @@ impl EventLoop {
 
             while let Ok(task) = receiver.try_recv() {
                 match task {
-                    Task::AddSocket(socket) => self.add_socket(socket),
+                    Task::AddSocket(socket) => self.add_socket(socket, &mut sockets),
+                    Task::AsyncSendWork {
+                        qp_num,
+                        work: WaitingWork { index, work_id },
+                    } => {
+                        if let Some(wrapper) = sockets.get_mut(&qp_num) {
+                            if wrapper.socket.state.check_send_index(index) {
+                                match wrapper.socket.submit_work_id(work_id) {
+                                    Ok(_) => (),
+                                    Err(_) => {
+                                        let _ = wrapper.socket.set_to_error();
+                                    }
+                                }
+                            } else {
+                                wrapper.waiting_send_indexs.insert(index);
+                                wrapper.waiting_send_works.push_back(work_id);
+                            }
+                        }
+                    }
                 }
             }
         }
         tracing::info!("event_loop is stopped.");
     }
 
-    fn handle_cq_events(&mut self, channel: &Channel) {
+    fn handle_cq_events(&mut self, channel: &Channel, sockets: &mut SocketsMap) {
         loop {
             match channel.poll_socket() {
                 Ok(ptr) if ptr.is_null() => break,
@@ -150,7 +174,7 @@ impl EventLoop {
                     let wrapper = unsafe { &mut *(ptr as *mut SocketWrapper) };
                     wrapper.unack_events_count += 1;
                     if self.handle_work_completion(wrapper) {
-                        self.sockets.remove(&wrapper.qp_num);
+                        sockets.remove(&wrapper.qp_num);
                     }
                 }
                 Err(err) => {
@@ -161,21 +185,25 @@ impl EventLoop {
         }
     }
 
-    fn add_socket(&mut self, socket: Arc<Socket>) {
+    fn add_socket(&mut self, socket: Arc<Socket>, sockets: &mut SocketsMap) {
         let qp_num = socket.queue_pair.qp_num;
         let mut wrapper = Box::new(SocketWrapper {
             socket,
             qp_num,
-            waiting: Default::default(),
-            unack_recv_count: Default::default(),
+            waiting_send_indexs: Default::default(),
+            waiting_send_works: Default::default(),
+            waiting_remote_notification: None,
+            remote_completion: Default::default(),
+            remote_notification: Default::default(),
             unack_events_count: Default::default(),
         });
 
         let comp_queue = unsafe { &mut *wrapper.socket.comp_queue.as_mut_ptr() };
         comp_queue.cq_context = wrapper.as_mut() as *mut _ as _;
 
+        // enable notification and start to handle events.
         if !self.handle_work_completion(&mut wrapper) {
-            self.sockets.insert(qp_num, Box::into_pin(wrapper));
+            sockets.insert(qp_num, Box::into_pin(wrapper));
         }
     }
 
@@ -186,49 +214,48 @@ impl EventLoop {
             match wrapper.poll_completions(&mut self.completions) {
                 Ok(wcs) => {
                     let mut is_error = false;
-                    let mut finished = wcs.len();
+                    let mut send_local_complete = 0;
+                    let mut read_complete = 0;
 
                     for wc in wcs {
-                        let wr_id = WorkRequestId::from(wc.wr_id);
-
-                        let result = match wr_id {
-                            WorkRequestId::Empty => continue,
-                            WorkRequestId::SendData(off) | WorkRequestId::AsyncSendData(off) => {
-                                let work = WorkRef::new(&self.work_pool, off);
-                                wrapper.on_send_data(wc, work)
-                            }
-                            WorkRequestId::SendImm(imm) | WorkRequestId::AsyncSendImm(imm) => {
-                                wrapper.on_send_imm(wc, imm)
-                            }
-                            WorkRequestId::SendMsg(_, _) => {
-                                let msg_wr_id = wr_id.msg();
-                                if msg_wr_id != WorkRequestId::Empty {
-                                    wrapper.waiting.push(msg_wr_id);
+                        let work_id = WorkID::from(wc.wr_id);
+                        let result = match &work_id {
+                            WorkID::Empty => continue,
+                            WorkID::Box(work) => {
+                                match work.ty {
+                                    WorkType::SEND => {
+                                        send_local_complete += 1;
+                                        wrapper.on_send_data(wc, work_id)
+                                    }
+                                    WorkType::RECV => wrapper.on_recv_data(wc, work_id),
+                                    WorkType::READ => {
+                                        // TODO(SF): handle read result.
+                                        read_complete += 1;
+                                        Ok(())
+                                    }
                                 }
-                                Ok(())
                             }
-                            WorkRequestId::RecvData(off) => {
-                                let work = WorkRef::new(&self.work_pool, off);
-                                wrapper.on_recv_data(wc, work)
+                            WorkID::Imm(imm) => {
+                                send_local_complete += 1;
+                                wrapper.on_send_imm(wc, *imm)
                             }
                         };
                         is_error |= result.is_err();
+                    }
 
-                        match wr_id {
-                            WorkRequestId::SendData(_) | WorkRequestId::SendImm(_) => {
-                                finished += 1;
-                            }
-                            _ => (),
-                        }
+                    if send_local_complete > 0 {
+                        wrapper
+                            .socket
+                            .state
+                            .send_local_complete(send_local_complete);
+                    }
+
+                    if read_complete > 0 {
+                        wrapper.socket.state.read_complete(read_complete);
                     }
 
                     if is_error {
                         let _ = wrapper.socket.set_to_error();
-                    }
-
-                    let need_remove = wrapper.socket.state.work_complete(finished as u64);
-                    if need_remove {
-                        return true;
                     }
 
                     if wcs.len() < self.completions.len() {
@@ -236,6 +263,62 @@ impl EventLoop {
                     }
                 }
                 Err(err) => tracing::error!("poll comp_queue failed: {:?}", err),
+            }
+        }
+
+        // try to send notification.
+        if wrapper.waiting_remote_notification.is_some() && wrapper.remote_notification > 0 {
+            *wrapper.waiting_remote_notification.as_mut().unwrap() += wrapper.remote_notification;
+            wrapper.remote_notification = 0;
+        } else if wrapper.remote_notification >= wrapper.socket.notification_batch {
+            let n = wrapper.remote_notification;
+            wrapper.remote_notification = 0;
+            let state = &wrapper.socket.state;
+            if let Some(index) = state.apply_send() {
+                if state.check_notify_index(index) {
+                    match wrapper.socket.submit_work_id(WorkID::Imm(n)) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            let _ = wrapper.socket.set_to_error();
+                        }
+                    }
+                } else {
+                    wrapper.waiting_send_indexs.insert(index);
+                    wrapper.waiting_remote_notification = Some(n);
+                }
+            };
+        }
+
+        // try to waiting sends.
+        if wrapper.remote_completion > 0 {
+            let current_bound = wrapper
+                .socket
+                .state
+                .send_remote_complete(wrapper.remote_completion as u64);
+            wrapper.remote_completion = 0;
+            let mut split = wrapper.waiting_send_indexs.split_off(&current_bound); // [start, bound) + [bound, end)
+            std::mem::swap(&mut split, &mut wrapper.waiting_send_indexs);
+
+            let mut count = split.len();
+            if count > 0 && wrapper.waiting_remote_notification.is_some() {
+                count -= 1;
+                let n = wrapper.waiting_remote_notification.take().unwrap();
+                match wrapper.socket.submit_work_id(WorkID::Imm(n)) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        let _ = wrapper.socket.set_to_error();
+                    }
+                }
+            }
+
+            for _ in 0..count {
+                let work_id = wrapper.waiting_send_works.pop_front().unwrap();
+                match wrapper.socket.submit_work_id(work_id) {
+                    Ok(_) => (),
+                    Err(_) => {
+                        let _ = wrapper.socket.set_to_error();
+                    }
+                }
             }
         }
 
