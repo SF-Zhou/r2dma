@@ -1,4 +1,4 @@
-use r2dma_sys::ibv_wc_status;
+use crate::ibv::verbs::ibv_wc_status;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ErrorKind {
@@ -98,5 +98,6 @@ mod tests {
             Error::with_msg(ErrorKind::IBGetDeviceListFail, "not found!".into())
         );
         println!("{:?}", Error::from(nix::Error::EAGAIN));
+        println!("{:?}", Error::from(ibv_wc_status::IBV_WC_SUCCESS));
     }
 }

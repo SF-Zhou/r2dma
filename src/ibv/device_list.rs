@@ -1,6 +1,6 @@
+use super::verbs::*;
 use super::Device;
 use crate::*;
-use r2dma_sys::*;
 use std::{ffi::c_int, ops::Deref};
 
 pub type DeviceList = utils::Wrapper<[Device]>;

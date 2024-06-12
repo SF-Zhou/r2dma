@@ -8,6 +8,7 @@ mod gid;
 mod memory_region;
 mod protection_domain;
 mod queue_pair;
+pub mod verbs;
 mod work_completion;
 
 pub use comp_channel::CompChannel;

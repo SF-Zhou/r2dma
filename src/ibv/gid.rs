@@ -1,4 +1,4 @@
-use r2dma_sys::ibv_gid;
+use super::verbs::ibv_gid;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]

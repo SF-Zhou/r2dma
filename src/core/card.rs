@@ -1,5 +1,5 @@
+use crate::ibv::verbs::*;
 use crate::*;
-use r2dma_sys::*;
 use std::{borrow::Cow, sync::Arc};
 
 #[derive(Debug)]

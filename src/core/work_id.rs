@@ -1,5 +1,5 @@
+use crate::ibv::verbs::ibv_sge;
 use crate::BufferSlice;
-use r2dma_sys::ibv_sge;
 
 const IMM_SHIFT: u8 = 1;
 const BOX_SHIFT: u8 = 2;
@@ -32,28 +32,6 @@ impl From<Box<Work>> for WorkID {
 }
 
 impl WorkID {
-    pub fn is_send(&self) -> bool {
-        match self {
-            WorkID::Box(b) => b.ty == WorkType::SEND,
-            WorkID::Imm(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_recv(&self) -> bool {
-        match self {
-            WorkID::Box(b) => b.ty == WorkType::RECV,
-            _ => false,
-        }
-    }
-
-    pub fn is_read(&self) -> bool {
-        match self {
-            WorkID::Box(b) => b.ty == WorkType::READ,
-            _ => false,
-        }
-    }
-
     pub fn sge(&self) -> ibv_sge {
         match self {
             WorkID::Box(b) if b.buf.is_some() => {

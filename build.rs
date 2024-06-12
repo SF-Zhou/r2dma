@@ -31,7 +31,7 @@ fn main() {
         .formatter(bindgen::Formatter::Rustfmt)
         .size_t_is_usize(true)
         .translate_enum_integer_types(true)
-        .layout_tests(true)
+        .layout_tests(false)
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: false,
         })

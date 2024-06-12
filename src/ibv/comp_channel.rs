@@ -1,5 +1,5 @@
+use super::verbs::*;
 use crate::*;
-use r2dma_sys::*;
 
 use std::os::{fd::BorrowedFd, raw::c_void};
 

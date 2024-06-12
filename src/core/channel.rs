@@ -1,7 +1,7 @@
+use crate::ibv::verbs::*;
 use crate::*;
 use ibv::CompChannel;
 use nix::sys::{epoll::*, eventfd::*};
-use r2dma_sys::*;
 use std::{
     os::raw::c_void,
     sync::{

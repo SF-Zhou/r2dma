@@ -1,6 +1,6 @@
+use super::verbs::*;
 use super::{Device, Gid};
 use crate::*;
-use r2dma_sys::*;
 
 pub type Context = utils::Wrapper<ibv_context>;
 

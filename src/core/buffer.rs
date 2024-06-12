@@ -1,5 +1,5 @@
+use crate::ibv::verbs::*;
 use crate::*;
-use r2dma_sys::*;
 
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
