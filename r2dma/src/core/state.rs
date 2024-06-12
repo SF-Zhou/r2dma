@@ -1,153 +1,133 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// queue pair state
-/// 24bit wr count + 7bit is_removed + 1bit is_error
-
-const ERROR: u64 = 1 << 0;
-const ACK_COUNT_SHIFT: u8 = 8;
-const ACK_COUNT_MASK: u64 = (1 << WR_COUNT_SHIFT) - (1 << ACK_COUNT_SHIFT);
-const WR_COUNT_SHIFT: u8 = 32;
-const WR_COUNT_MASK: u64 = u64::MAX - (1 << WR_COUNT_SHIFT) + 1;
-
-trait Bits {
-    fn v(&self) -> u64;
-
-    #[inline(always)]
-    fn is_ok(&self) -> bool {
-        self.v() & ERROR == 0
-    }
-
-    #[inline(always)]
-    fn wr_cnt(&self) -> u64 {
-        (self.v() & WR_COUNT_MASK) >> WR_COUNT_SHIFT
-    }
-
-    #[inline(always)]
-    fn ack_cnt(&self) -> u64 {
-        (self.v() & ACK_COUNT_MASK) >> ACK_COUNT_SHIFT
-    }
-
-    #[inline(always)]
-    fn from_wr_cnt(wr_cnt: u64) -> u64 {
-        wr_cnt << WR_COUNT_SHIFT
-    }
-
-    #[inline(always)]
-    fn from_ack_cnt(ack_cnt: u32) -> u64 {
-        (ack_cnt as u64) << ACK_COUNT_SHIFT
-    }
-
-    #[inline(always)]
-    fn from_wr_and_ack_cnt(wr_cnt: u64, ack_cnt: u64) -> u64 {
-        (wr_cnt << WR_COUNT_SHIFT) | (ack_cnt << ACK_COUNT_SHIFT)
-    }
-}
-
-impl Bits for u64 {
-    #[inline(always)]
-    fn v(&self) -> u64 {
-        *self
-    }
-}
+const ERROR: u64 = 1 << 63;
 
 pub struct State {
-    state: AtomicU64,
-    remain: AtomicU64,
+    max_send: u32,
+    max_read: u32,
+
+    last_send: AtomicU64,
+    last_read: AtomicU64,
+
+    send_index: AtomicU64,
+    send_local_finished: AtomicU64,
+    send_remote_finished: AtomicU64,
+
+    read_index: AtomicU64,
+    read_finished: AtomicU64,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            state: AtomicU64::new(u64::from_wr_cnt(1)), // 1 for the last wake up wr.
-            remain: AtomicU64::new(u64::MAX),
-        }
-    }
-}
-
+#[derive(Debug)]
 pub enum ApplyResult {
     Succ,
-    Async,
     Error,
+    Async { index: u64 },
 }
 
 impl State {
-    pub fn apply_send(&self, unack_limit: u32) -> ApplyResult {
-        let diff = u64::from_wr_and_ack_cnt(1 + 1, 1); // one for current request, one for async submit.
-        let current = self.state.fetch_add(diff, Ordering::SeqCst) + diff;
-        if !current.is_ok() {
-            ApplyResult::Error
-        } else if current.ack_cnt() > unack_limit as _ {
-            ApplyResult::Async
+    pub fn new(max_send: u32, max_read: u32) -> Self {
+        Self {
+            max_send,
+            max_read,
+            last_send: Default::default(),
+            last_read: Default::default(),
+            send_index: Default::default(),
+            send_local_finished: Default::default(),
+            send_remote_finished: Default::default(),
+            read_index: Default::default(),
+            read_finished: Default::default(),
+        }
+    }
+
+    pub fn apply_send(&self) -> Option<u64> {
+        let bits = self.send_index.fetch_add(1, Ordering::SeqCst);
+        if bits & ERROR == 0 {
+            Some(bits)
         } else {
-            ApplyResult::Succ
+            None
         }
     }
 
-    pub fn apply_recv(&self) -> ApplyResult {
-        let diff = u64::from_wr_cnt(1);
-        match self.state.fetch_add(diff, Ordering::SeqCst).is_ok() {
-            true => ApplyResult::Succ,
-            false => ApplyResult::Error,
+    pub fn apply_read(&self) -> Option<u64> {
+        let bits = self.read_index.fetch_add(1, Ordering::SeqCst);
+        if bits & ERROR == 0 {
+            Some(bits)
+        } else {
+            None
         }
     }
 
-    pub fn recv_ack(&self, ack: u32) {
-        let diff = u64::from_ack_cnt(ack);
-        self.state.fetch_sub(diff, Ordering::SeqCst);
+    pub fn check_send_index(&self, index: u64) -> bool {
+        index < self.send_remote_finished.load(Ordering::Acquire) + self.max_send as u64
     }
 
-    // prepare to submit work request. return true if ok.
-    #[inline(always)]
-    pub fn prepare_submit(&self) -> bool {
-        let diff = u64::from_wr_and_ack_cnt(1, 1);
-        self.state.fetch_add(diff, Ordering::SeqCst).is_ok()
+    pub fn check_notify_index(&self, index: u64) -> bool {
+        index < self.send_remote_finished.load(Ordering::Acquire) + self.max_send as u64 + 1
     }
 
-    // set to error. return true if need send a wake up wr.
-    #[inline(always)]
+    pub fn check_read_index(&self, index: u64) -> bool {
+        index < self.read_finished.load(Ordering::Acquire) + self.max_read as u64
+    }
+
+    pub fn send_local_complete(&self, cnt: u64) -> u64 {
+        self.send_local_finished.fetch_add(cnt, Ordering::Release) + cnt + self.max_send as u64
+    }
+
+    pub fn send_remote_complete(&self, cnt: u64) -> u64 {
+        self.send_remote_finished.fetch_add(cnt, Ordering::Release) + cnt + self.max_send as u64
+    }
+
+    pub fn read_complete(&self, cnt: u64) -> u64 {
+        self.read_finished.fetch_add(cnt, Ordering::Release) + cnt + self.max_read as u64
+    }
+
     pub fn set_error(&self) -> bool {
-        let bits = self.state.fetch_or(ERROR, Ordering::SeqCst);
-        if bits.is_ok() {
+        let bits = self.send_index.fetch_or(ERROR, Ordering::SeqCst);
+        let first_set = if bits & ERROR == 0 {
             // first to set error.
-            let diff = u64::MAX - bits.wr_cnt();
-            self.remain.fetch_sub(diff, Ordering::SeqCst);
+            self.last_send.store(bits, Ordering::SeqCst);
             true
         } else {
             false
-        }
-    }
+        };
 
-    // remove socket if return value is true.
-    #[inline(always)]
-    pub fn work_complete(&self, cnt: u64) -> bool {
-        let diff = u64::from_wr_cnt(cnt);
-        let bits = self.state.fetch_sub(diff, Ordering::SeqCst);
-        assert!(bits >= diff, "bad state: {:X}, cnt: {}", bits, cnt);
-
-        if !bits.is_ok() {
-            let old = self.remain.fetch_sub(cnt, Ordering::SeqCst);
-            if old == cnt {
-                return true;
-            }
+        let bits = self.read_index.fetch_or(ERROR, Ordering::SeqCst);
+        if bits & ERROR == 0 {
+            self.last_read.store(bits, Ordering::SeqCst);
         }
-        false
+
+        first_set
     }
 }
 
 impl std::fmt::Debug for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let bits = self.state.load(Ordering::Acquire);
-        let is_ok = bits.is_ok();
-        let wr_cnt = bits.wr_cnt();
-        let remain_wr = if is_ok {
-            None
+        let bits = self.send_index.load(Ordering::Acquire);
+        let is_ok = bits & ERROR == 0;
+        let send_index = bits & !ERROR;
+        let send_local_finished = self.send_local_finished.load(Ordering::Acquire);
+        let send_remote_finished = self.send_remote_finished.load(Ordering::Acquire);
+        let read_index = self.read_index.load(Ordering::Acquire) & !ERROR;
+        let read_finished = self.read_finished.load(Ordering::Acquire);
+        let (last_send, last_read) = if is_ok {
+            (None, None)
         } else {
-            Some(self.remain.load(Ordering::Acquire))
+            (
+                Some(self.last_send.load(Ordering::Acquire)),
+                Some(self.last_read.load(Ordering::Acquire)),
+            )
         };
         f.debug_struct("State")
             .field("is_ok", &is_ok)
-            .field("wr_cnt", &wr_cnt)
-            .field("remain_wr", &remain_wr)
+            .field("send_index", &send_index)
+            .field("send_local_finished", &send_local_finished)
+            .field("send_remote_finished", &send_remote_finished)
+            .field("read_index", &read_index)
+            .field("read_finished", &read_finished)
+            .field("last_send", &last_send)
+            .field("last_read", &last_read)
+            .field("max_send", &self.max_send)
+            .field("max_read", &self.max_read)
             .finish()
     }
 }
@@ -158,31 +138,17 @@ mod tests {
 
     #[test]
     fn test_state_normal() {
-        let state = State::default();
-        assert!(state.set_error());
-        assert!(!state.prepare_submit());
+        let state = State::new(16, 16);
+        println!("{:#?}", state);
 
-        let state = State::default();
-        assert!(state.prepare_submit()); // 1
-        assert!(state.prepare_submit()); // 2
-        assert!(!state.work_complete(2)); // 0
+        for _ in 0..16 {
+            let index = state.apply_send().unwrap();
+            assert!(state.check_send_index(index));
+        }
+        let index = state.apply_send().unwrap();
+        assert!(!state.check_send_index(index));
 
-        assert!(state.prepare_submit()); // 1
-        assert!(state.set_error());
-        // need one more submit.
-        assert!(!state.work_complete(1)); // remain 1
-        assert!(state.work_complete(1)); // remain 0
-
-        let bits = u64::from_wr_and_ack_cnt(233, 2333);
-        assert_eq!(bits.wr_cnt(), 233);
-        assert_eq!(bits.ack_cnt(), 2333);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_state_panic() {
-        let state = State::default();
-        state.work_complete(1);
-        state.work_complete(1);
+        state.send_remote_complete(1);
+        assert!(state.check_send_index(index));
     }
 }

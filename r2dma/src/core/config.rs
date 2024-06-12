@@ -14,9 +14,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             buffer_size: 1 << 20,
-            buffer_count: 64,
+            buffer_count: 256,
             max_cqe: 64,
-            max_wr: 10,
+            max_wr: 64,
             max_sge: 5,
             work_pool_size: 1024,
         }
