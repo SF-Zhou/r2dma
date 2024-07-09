@@ -11,7 +11,7 @@ fn main() {
     let mut include_paths = lib.include_paths.into_iter().collect::<HashSet<_>>();
     include_paths.insert(PathBuf::from("/usr/include"));
 
-    let mut builder = bindgen::Builder::default()
+    let builder = bindgen::Builder::default()
         .clang_args(include_paths.iter().map(|p| format!("-I{:?}", p)))
         .header_contents("header.h", "#include <infiniband/verbs.h>")
         .derive_copy(true)
@@ -71,18 +71,10 @@ fn main() {
         .bitfield_enum("ibv_access_flags")
         .bitfield_enum("ibv_send_flags")
         .bitfield_enum("ibv_wc_flags")
-        .bitfield_enum("ibv_qp_attr_mask");
-
-    for name in [
-        "ibv_srq",
-        "ibv_wq",
-        "ibv_qp",
-        "ibv_cq",
-        "ibv_cq_ex",
-        "ibv_context",
-    ] {
-        builder = builder.no_copy(name).no_debug(name)
-    }
+        .bitfield_enum("ibv_qp_attr_mask")
+        .no_copy("ibv_qp")
+        .no_copy("ibv_cq")
+        .no_copy("ibv_context");
 
     builder
         .generate()
