@@ -1,0 +1,18 @@
+[workspace]
+members = ["r2dma", "r2dma-cli"]
+resolver = "2"
+
+[workspace.package]
+authors = ["SF-Zhou <sfzhou.scut@gmail.com>"]
+edition = "2021"
+homepage = "https://github.com/SF-Zhou/r2dma"
+repository = "https://github.com/SF-Zhou/r2dma"
+description = "A Rust RDMA library"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+clap = { version = "4", features = ["derive"] }
+derse = "0"
+libc = "0"
+thiserror = "2"
+tracing = "0"
