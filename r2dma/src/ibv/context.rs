@@ -29,20 +29,12 @@ impl Context {
         }
     }
 
-    pub fn query_gid(&self, port_num: u8, gid_index: u16) -> Result<ibv_gid_entry> {
-        let mut entry = ibv_gid_entry::default();
-        let ret = unsafe {
-            _ibv_query_gid_ex(
-                self.as_mut_ptr(),
-                port_num as _,
-                gid_index as _,
-                &mut entry,
-                0,
-                std::mem::size_of::<ibv_gid_entry>(),
-            )
-        };
-        if ret == 0 {
-            Ok(entry)
+    pub fn query_gid(&self, port_num: u8, gid_index: u16) -> Result<ibv_gid> {
+        let mut gid = ibv_gid::default();
+        let ret =
+            unsafe { ibv_query_gid(self.as_mut_ptr(), port_num as _, gid_index as _, &mut gid) };
+        if ret == 0 && !gid.is_null() {
+            Ok(gid)
         } else {
             Err(Error::IBQueryGidFail)
         }
@@ -57,6 +49,13 @@ impl Context {
         } else {
             Err(Error::IBQueryPortFail)
         }
+    }
+
+    #[cfg(test)]
+    pub fn create_for_test() -> Self {
+        let list = super::DeviceList::available().unwrap();
+        let first_device = list.first().unwrap();
+        Context::create(first_device).unwrap()
     }
 }
 
@@ -85,9 +84,8 @@ mod tests {
 
     #[test]
     fn test_context() {
-        let list = DeviceList::available().unwrap();
-        let first_device = list.first().unwrap();
-        let context = Context::create(first_device).unwrap();
+        let context = Context::create_for_test();
+        println!("context: {:#?}", context);
 
         let device_attr = context.query_device().unwrap();
         println!("device attr: {:#?}", device_attr);

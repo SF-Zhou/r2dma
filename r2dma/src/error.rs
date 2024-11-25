@@ -10,6 +10,8 @@ pub enum Error {
     IBQueryGidFail,
     #[error("ib query port fail")]
     IBQueryPortFail,
+    #[error("ib allocate protection domain fail")]
+    IBAllocPDFail,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

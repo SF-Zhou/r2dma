@@ -1,6 +1,6 @@
 use std::net::Ipv6Addr;
 
-use super::verbs::{ibv_gid, ibv_gid_entry, ibv_gid_type};
+use super::verbs::ibv_gid;
 
 impl ibv_gid {
     pub fn as_raw(&self) -> &[u8; 16] {
@@ -56,34 +56,6 @@ impl<'a> derse::Deserialize<'a> for ibv_gid {
         let data = buf.pop(gid.as_mut().len())?;
         gid.as_mut().copy_from_slice(&data);
         Ok(gid)
-    }
-}
-
-impl ibv_gid_entry {
-    pub fn gid_type(&self) -> ibv_gid_type {
-        match self.gid_type {
-            0 => ibv_gid_type::IBV_GID_TYPE_IB,
-            1 => ibv_gid_type::IBV_GID_TYPE_ROCE_V1,
-            2 => ibv_gid_type::IBV_GID_TYPE_ROCE_V2,
-            i => panic!("invalid gid type {i}"),
-        }
-    }
-}
-
-impl std::fmt::Debug for ibv_gid_entry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.gid_type() == ibv_gid_type::IBV_GID_TYPE_ROCE_V2 {
-            let ipv6 = self.gid.as_ipv6();
-            f.debug_struct("gid_entry")
-                .field("gid", &ipv6)
-                .field("type", &self.gid_type())
-                .finish()
-        } else {
-            f.debug_struct("gid_entry")
-                .field("gid", &self.gid)
-                .field("type", &self.gid_type())
-                .finish()
-        }
     }
 }
 

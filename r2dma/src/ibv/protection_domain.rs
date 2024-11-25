@@ -8,7 +8,7 @@ impl ProtectionDomain {
         Ok(ibv::ProtectionDomain::new(unsafe {
             let protection_domain = ibv_alloc_pd(context.as_mut_ptr());
             if protection_domain.is_null() {
-                return Err(Error::with_errno(ErrorKind::IBAllocPDFail));
+                return Err(Error::IBAllocPDFail);
             }
             protection_domain
         }))
@@ -26,5 +26,17 @@ impl std::fmt::Debug for ProtectionDomain {
         f.debug_struct("ProtectionDomain")
             .field("handle", &self.handle)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pd_create() {
+        let context = Context::create_for_test();
+        let pd = ProtectionDomain::create(&context).unwrap();
+        println!("pd: {:#?}", pd);
     }
 }
