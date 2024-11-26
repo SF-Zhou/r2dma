@@ -1,5 +1,5 @@
 use super::verbs::*;
-use crate::ibv;
+use crate::*;
 pub type CompQueue = super::Wrapper<ibv_cq>;
 
 impl CompQueue {
@@ -18,7 +18,7 @@ impl CompQueue {
             )
         };
         if comp_queue.is_null() {
-            return Err(Error::with_errno(ErrorKind::IBCreateCQFail));
+            return Err(Error::IBCreateCQFail);
         }
         Ok(Self::new(comp_queue))
     }
@@ -28,7 +28,7 @@ impl CompQueue {
         if ret == 0 {
             Ok(())
         } else {
-            Err(Error::with_errno(ErrorKind::IBReqNotifyCQFail))
+            Err(Error::IBReqNotifyCQFail)
         }
     }
 
@@ -36,21 +36,18 @@ impl CompQueue {
         unsafe { ibv_ack_cq_events(self.as_mut_ptr(), unack_events_count) }
     }
 
-    pub fn set_cq_context(&self, ptr: *mut c_void) {
+    pub fn set_cq_context(&self, ptr: *mut std::ffi::c_void) {
         let this = unsafe { &mut *self.as_mut_ptr() };
         this.cq_context = ptr;
     }
 
-    pub fn poll_cq<'a>(
-        &self,
-        wc: &'a mut [ibv::WorkCompletion],
-    ) -> Result<&'a mut [ibv::WorkCompletion]> {
+    pub fn poll_cq<'a>(&self, wc: &'a mut [ibv_wc]) -> Result<&'a mut [ibv_wc]> {
         let num_entries = wc.len() as i32;
         let num = unsafe { ibv_poll_cq(self.as_mut_ptr(), num_entries, wc.as_mut_ptr() as _) };
         if num >= 0 {
             Ok(&mut wc[..num as usize])
         } else {
-            Err(Error::with_errno(ErrorKind::IBPollCQFail))
+            Err(Error::IBPollCQFail)
         }
     }
 }
@@ -69,5 +66,21 @@ impl std::fmt::Debug for CompQueue {
             .field("comp_events_completiond", &self.comp_events_completed)
             .field("async_events_completiond", &self.async_events_completed)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+
+    #[test]
+    fn test_comp_queue() {
+        let context = Context::create_for_test();
+        let comp_channel = CompChannel::create(&context).unwrap();
+        let comp_queue = CompQueue::create(&context, 64, &comp_channel).unwrap();
+        println!("{:#?}", comp_queue);
+
+        comp_queue.req_notify().unwrap();
+        comp_queue.ack_cq_events(0);
     }
 }

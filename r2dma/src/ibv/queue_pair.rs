@@ -14,7 +14,7 @@ impl QueuePair {
     pub fn create(pd: &ibv::ProtectionDomain, attr: &mut ibv_qp_init_attr) -> Result<Self> {
         let queue_pair = unsafe { ibv_create_qp(pd.as_mut_ptr(), attr) };
         if queue_pair.is_null() {
-            return Err(Error::with_errno(ErrorKind::IBCreateCQFail));
+            return Err(Error::IBCreateCQFail);
         }
         Ok(Self::new(queue_pair))
     }
@@ -46,7 +46,7 @@ impl QueuePair {
             min_rnr_timer: 0x12,
             ah_attr: ibv_ah_attr {
                 grh: ibv_global_route {
-                    dgid: *remote.gid,
+                    dgid: remote.gid,
                     flow_label: 0,
                     sgid_index: 1,
                     hop_limit: 0xff,
@@ -121,7 +121,7 @@ impl QueuePair {
         if ret == 0_i32 {
             Ok(())
         } else {
-            Err(Error::with_errno(ErrorKind::IBModifyQPFail))
+            Err(Error::IBModifyQPFail)
         }
     }
 }
@@ -141,5 +141,36 @@ impl std::fmt::Debug for QueuePair {
             .field("qp_type", &self.qp_type)
             .field("events_completiond", &self.events_completed)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+
+    #[test]
+    fn test_queue_pair_create() {
+        let context = Context::create_for_test();
+        let comp_channel = CompChannel::create(&context).unwrap();
+        let comp_queue = CompQueue::create(&context, 128, &comp_channel).unwrap();
+        let mut attr = verbs::ibv_qp_init_attr {
+            qp_context: std::ptr::null_mut(),
+            send_cq: comp_queue.as_mut_ptr(),
+            recv_cq: comp_queue.as_mut_ptr(),
+            srq: std::ptr::null_mut(),
+            cap: verbs::ibv_qp_cap {
+                max_send_wr: 64,
+                max_recv_wr: 64,
+                max_send_sge: 1,
+                max_recv_sge: 1,
+                max_inline_data: 0,
+            },
+            qp_type: verbs::ibv_qp_type::IBV_QPT_RC,
+            sq_sig_all: 0,
+        };
+
+        let pd = ProtectionDomain::create(&context).unwrap();
+        let queue_pair = QueuePair::create(&pd, &mut attr).unwrap();
+        println!("{:#?}", queue_pair);
     }
 }

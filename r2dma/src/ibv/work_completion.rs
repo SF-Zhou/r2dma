@@ -1,21 +1,17 @@
 use super::verbs::*;
 
-#[derive(Copy, Clone, Default)]
-#[repr(transparent)]
-pub struct WorkCompletion(ibv_wc);
-
-impl WorkCompletion {
+impl ibv_wc {
     pub fn result(&self) -> Result<u32, ibv_wc_status> {
-        if self.0.status == ibv_wc_status::IBV_WC_SUCCESS {
-            Ok(self.0.byte_len)
+        if self.status == ibv_wc_status::IBV_WC_SUCCESS {
+            Ok(self.byte_len)
         } else {
-            Err(self.0.status)
+            Err(self.status)
         }
     }
 
     pub fn imm(&self) -> Option<u32> {
-        if self.0.wc_flags & ibv_wc_flags::IBV_WC_WITH_IMM.0 != 0 {
-            Some(u32::from_be(unsafe { self.0.__bindgen_anon_1.imm_data }))
+        if self.wc_flags & ibv_wc_flags::IBV_WC_WITH_IMM.0 != 0 {
+            Some(u32::from_be(unsafe { self.__bindgen_anon_1.imm_data }))
         } else {
             None
         }
@@ -28,31 +24,15 @@ impl WorkCompletion {
     }
 }
 
-impl std::ops::Deref for WorkCompletion {
-    type Target = ibv_wc;
-
-    #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for WorkCompletion {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl std::fmt::Debug for WorkCompletion {
+impl std::fmt::Debug for ibv_wc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let imm = self.imm();
         f.debug_struct("WorkCompletion")
-            .field("wr_id", &self.0.wr_id)
-            .field("status", &self.0.status)
-            .field("opcode", &self.0.opcode)
-            .field("byte_len", &self.0.byte_len)
-            .field("wc_flags", &self.0.wc_flags)
+            .field("wr_id", &self.wr_id)
+            .field("status", &self.status)
+            .field("opcode", &self.opcode)
+            .field("byte_len", &self.byte_len)
+            .field("wc_flags", &self.wc_flags)
             .field("imm", &imm)
             .finish()
     }
@@ -64,15 +44,15 @@ mod tests {
 
     #[test]
     fn test_work_completion() {
-        let mut wc = WorkCompletion::default();
+        let mut wc = ibv_wc::default();
         println!("{:#?}", wc);
         assert_eq!(wc.result(), Ok(0));
         assert_eq!(wc.imm(), None);
 
-        wc.0.status = ibv_wc_status::IBV_WC_WR_FLUSH_ERR;
+        wc.status = ibv_wc_status::IBV_WC_WR_FLUSH_ERR;
         assert_eq!(wc.result(), Err(ibv_wc_status::IBV_WC_WR_FLUSH_ERR));
 
-        wc.0.wc_flags = ibv_wc_flags::IBV_WC_WITH_IMM.0;
+        wc.wc_flags = ibv_wc_flags::IBV_WC_WITH_IMM.0;
         assert_eq!(wc.imm(), Some(0));
     }
 }
