@@ -18,8 +18,7 @@ impl ibv_wc {
     }
 
     pub fn extract<T>(&mut self) -> Box<T> {
-        let mut ptr = 0u64;
-        std::mem::swap(&mut ptr, &mut self.wr_id);
+        let ptr = std::mem::take(&mut self.wr_id);
         unsafe { Box::from_raw(ptr as *mut _) }
     }
 }

@@ -13,7 +13,7 @@ impl MemoryRegion {
                 ibv::ACCESS_FLAGS as _,
             );
             if memory_region.is_null() {
-                return Err(Error::IBRegMRFail);
+                return Err(Error::IBRegMemoryRegionFail(std::io::Error::last_os_error()));
             }
             memory_region
         }))

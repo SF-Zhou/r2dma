@@ -36,7 +36,11 @@ impl std::convert::AsMut<[u8]> for ibv_gid {
 
 impl std::fmt::Debug for ibv_gid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let gid = super::bytes_to_hex_string(self.as_raw());
+        let gid = self
+            .as_raw()
+            .chunks_exact(2)
+            .map(|b| format!("{:02x}{:02x}", b[0], b[1]))
+            .reduce(|a, b| format!("{}-{}", a, b));
         f.debug_tuple("Gid").field(&gid).finish()
     }
 }

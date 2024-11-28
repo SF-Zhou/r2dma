@@ -14,7 +14,7 @@ impl QueuePair {
     pub fn create(pd: &ibv::ProtectionDomain, attr: &mut ibv_qp_init_attr) -> Result<Self> {
         let queue_pair = unsafe { ibv_create_qp(pd.as_mut_ptr(), attr) };
         if queue_pair.is_null() {
-            return Err(Error::IBCreateCQFail);
+            return Err(Error::IBCreateQueuePairFail(std::io::Error::last_os_error()));
         }
         Ok(Self::new(queue_pair))
     }
@@ -121,7 +121,7 @@ impl QueuePair {
         if ret == 0_i32 {
             Ok(())
         } else {
-            Err(Error::IBModifyQPFail)
+            Err(Error::IBModifyQueuePairFail(std::io::Error::last_os_error()))
         }
     }
 }
@@ -170,7 +170,10 @@ mod tests {
         };
 
         let pd = ProtectionDomain::create(&context).unwrap();
-        let queue_pair = QueuePair::create(&pd, &mut attr).unwrap();
+        let mut queue_pair = QueuePair::create(&pd, &mut attr).unwrap();
         println!("{:#?}", queue_pair);
+
+        queue_pair.init(1, 0).unwrap();
+        queue_pair.set_error();
     }
 }

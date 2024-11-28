@@ -9,7 +9,7 @@ impl Context {
         Ok(Self::new(unsafe {
             let context = ibv_open_device(device.as_mut_ptr());
             if context.is_null() {
-                return Err(Error::IBOpenDeviceFail);
+                return Err(Error::IBOpenDeviceFail(std::io::Error::last_os_error()));
             }
             context
         }))
@@ -25,7 +25,7 @@ impl Context {
         if ret == 0 {
             Ok(device_attr)
         } else {
-            Err(Error::IBQueryGidFail)
+            Err(Error::IBQueryDeviceFail(std::io::Error::last_os_error()))
         }
     }
 
@@ -36,7 +36,7 @@ impl Context {
         if ret == 0 && !gid.is_null() {
             Ok(gid)
         } else {
-            Err(Error::IBQueryGidFail)
+            Err(Error::IBQueryGidFail(std::io::Error::last_os_error()))
         }
     }
 
@@ -47,7 +47,7 @@ impl Context {
         if ret == 0 {
             Ok(unsafe { port_attr.assume_init() })
         } else {
-            Err(Error::IBQueryPortFail)
+            Err(Error::IBQueryPortFail(std::io::Error::last_os_error()))
         }
     }
 
@@ -91,8 +91,14 @@ mod tests {
         println!("device attr: {:#?}", device_attr);
 
         for port_num in 1..=device_attr.phys_port_cnt {
-            let port_attr = context.query_port(port_num);
+            let port_attr = context.query_port(port_num).unwrap();
             println!("port {port_num} attr: {:#?}", port_attr);
+
+            for gid_index in 0..port_attr.gid_tbl_len {
+                if let Ok(entry) = context.query_gid(port_num, gid_index as u16) {
+                    println!("{gid_index}: {:?}", entry);
+                }
+            }
         }
     }
 }

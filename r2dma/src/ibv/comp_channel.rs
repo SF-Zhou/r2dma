@@ -9,7 +9,9 @@ impl CompChannel {
     pub fn create(context: &ibv::Context) -> Result<Self> {
         let channel = unsafe { ibv_create_comp_channel(context.as_mut_ptr()) };
         if channel.is_null() {
-            return Err(Error::IBCreateCompChannelFail);
+            return Err(Error::IBCreateCompChannelFail(
+                std::io::Error::last_os_error(),
+            ));
         }
         Ok(Self::new(channel))
     }
@@ -21,14 +23,18 @@ impl CompChannel {
     pub fn set_nonblock(&self) -> Result<()> {
         let flags = unsafe { libc::fcntl(self.fd, libc::F_GETFL) };
         if flags == -1 {
-            return Err(Error::SetNonBlockFail);
+            return Err(Error::IBSetCompChannelNonBlockFail(
+                std::io::Error::last_os_error(),
+            ));
         }
 
         let ret = unsafe { libc::fcntl(self.fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
         if ret == 0 {
             Ok(())
         } else {
-            Err(Error::SetNonBlockFail)
+            Err(Error::IBSetCompChannelNonBlockFail(
+                std::io::Error::last_os_error(),
+            ))
         }
     }
 
@@ -41,7 +47,9 @@ impl CompChannel {
         } else if std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock {
             Ok(None)
         } else {
-            Err(Error::IBGetCQEventFail)
+            Err(Error::IBGetCompQueueEventFail(
+                std::io::Error::last_os_error(),
+            ))
         }
     }
 }

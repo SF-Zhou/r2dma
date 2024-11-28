@@ -10,7 +10,7 @@ impl DeviceList {
         let mut num_devices: c_int = 0;
         let arr = unsafe { ibv_get_device_list(&mut num_devices) };
         if arr.is_null() {
-            return Err(Error::IBGetDeviceListFail);
+            return Err(Error::IBGetDeviceListFail(std::io::Error::last_os_error()));
         }
         if num_devices == 0 {
             return Err(Error::IBDeviceNotFound);
@@ -43,5 +43,6 @@ mod tests {
     fn test_device_list() {
         let list = DeviceList::available().unwrap();
         assert!(!list.is_empty());
+        println!("{:#?}", list);
     }
 }

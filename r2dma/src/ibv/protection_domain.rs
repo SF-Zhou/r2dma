@@ -8,7 +8,7 @@ impl ProtectionDomain {
         Ok(ibv::ProtectionDomain::new(unsafe {
             let protection_domain = ibv_alloc_pd(context.as_mut_ptr());
             if protection_domain.is_null() {
-                return Err(Error::IBAllocPDFail);
+                return Err(Error::IBAllocPDFail(std::io::Error::last_os_error()));
             }
             protection_domain
         }))

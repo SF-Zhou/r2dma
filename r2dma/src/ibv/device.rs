@@ -23,7 +23,7 @@ impl super::Deleter for ibv_device {
 impl std::fmt::Debug for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = self.name();
-        let guid = super::bytes_to_hex_string(&self.guid().to_be_bytes());
+        let guid = format!("{:016x}", self.guid());
         f.debug_struct("Device")
             .field("name", &name)
             .field("guid", &guid)

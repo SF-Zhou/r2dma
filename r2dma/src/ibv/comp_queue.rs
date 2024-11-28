@@ -18,7 +18,7 @@ impl CompQueue {
             )
         };
         if comp_queue.is_null() {
-            return Err(Error::IBCreateCQFail);
+            return Err(Error::IBCreateCompQueueFail(std::io::Error::last_os_error()));
         }
         Ok(Self::new(comp_queue))
     }
@@ -28,7 +28,9 @@ impl CompQueue {
         if ret == 0 {
             Ok(())
         } else {
-            Err(Error::IBReqNotifyCQFail)
+            Err(Error::IBReqNotifyCompQueueFail(
+                std::io::Error::last_os_error(),
+            ))
         }
     }
 
@@ -47,7 +49,7 @@ impl CompQueue {
         if num >= 0 {
             Ok(&mut wc[..num as usize])
         } else {
-            Err(Error::IBPollCQFail)
+            Err(Error::IBPollCompQueueFail(std::io::Error::last_os_error()))
         }
     }
 }
