@@ -75,15 +75,23 @@ impl std::fmt::Debug for CompChannel {
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    use std::os::fd::{AsRawFd, FromRawFd};
 
     #[test]
     fn test_comp_channel() {
         let context = Context::create_for_test();
         let comp_channel = CompChannel::create(&context).unwrap();
         comp_channel.set_nonblock().unwrap();
+        assert_ne!(comp_channel.fd().as_raw_fd(), -1);
         println!("{:#?}", comp_channel);
 
         let value = comp_channel.get_cq_event::<i32>().unwrap();
         assert!(value.is_none());
+
+        unsafe { std::fs::File::from_raw_fd(comp_channel.fd) };
+        comp_channel.set_nonblock().unwrap_err();
+
+        unsafe { std::fs::File::from_raw_fd(context.cmd_fd) };
+        CompChannel::create(&context).unwrap_err();
     }
 }
