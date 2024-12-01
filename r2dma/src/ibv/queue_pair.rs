@@ -1,6 +1,6 @@
 use super::verbs::*;
-use super::Endpoint;
 use crate::*;
+use derse::{Deserialize, Serialize};
 use std::ffi::c_int;
 
 pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
@@ -8,11 +8,31 @@ pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
     | ibv_access_flags::IBV_ACCESS_REMOTE_READ.0
     | ibv_access_flags::IBV_ACCESS_RELAXED_ORDERING.0;
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Endpoint {
+    pub qp_num: u32,
+    pub lid: u16,
+    pub gid: ibv_gid,
+}
+
 pub type QueuePair = super::Wrapper<ibv_qp>;
 
 impl QueuePair {
-    pub fn create(pd: &ibv::ProtectionDomain, attr: &mut ibv_qp_init_attr) -> Result<Self> {
-        let queue_pair = unsafe { ibv_create_qp(pd.as_mut_ptr(), attr) };
+    pub fn create(
+        pd: &ibv::ProtectionDomain,
+        comp_queue: &CompQueue,
+        cap: verbs::ibv_qp_cap,
+    ) -> Result<Self> {
+        let mut attr = ibv_qp_init_attr {
+            qp_context: std::ptr::null_mut(),
+            send_cq: comp_queue.as_mut_ptr(),
+            recv_cq: comp_queue.as_mut_ptr(),
+            srq: std::ptr::null_mut(),
+            cap,
+            qp_type: verbs::ibv_qp_type::IBV_QPT_RC,
+            sq_sig_all: 0,
+        };
+        let queue_pair = unsafe { ibv_create_qp(pd.as_mut_ptr(), &mut attr) };
         if queue_pair.is_null() {
             return Err(Error::IBCreateQueuePairFail(std::io::Error::last_os_error()));
         }
@@ -153,25 +173,17 @@ mod tests {
         let context = Context::create_for_test();
         let comp_channel = CompChannel::create(&context).unwrap();
         let comp_queue = CompQueue::create(&context, 128, &comp_channel).unwrap();
-        let mut attr = verbs::ibv_qp_init_attr {
-            qp_context: std::ptr::null_mut(),
-            send_cq: comp_queue.as_mut_ptr(),
-            recv_cq: comp_queue.as_mut_ptr(),
-            srq: std::ptr::null_mut(),
-            cap: verbs::ibv_qp_cap {
-                max_send_wr: 64,
-                max_recv_wr: 64,
-                max_send_sge: 1,
-                max_recv_sge: 1,
-                max_inline_data: 0,
-            },
-            qp_type: verbs::ibv_qp_type::IBV_QPT_RC,
-            sq_sig_all: 0,
-        };
-
         let pd = ProtectionDomain::create(&context).unwrap();
-        let mut queue_pair = QueuePair::create(&pd, &mut attr).unwrap();
+        let cap = verbs::ibv_qp_cap {
+            max_send_wr: 64,
+            max_recv_wr: 64,
+            max_send_sge: 1,
+            max_recv_sge: 1,
+            max_inline_data: 0,
+        };
+        let mut queue_pair = QueuePair::create(&pd, &comp_queue, cap).unwrap();
         println!("{:#?}", queue_pair);
+        println!("{:#?}", unsafe { &*queue_pair.as_mut_ptr() });
 
         queue_pair.init(1, 0).unwrap();
         queue_pair.set_error();

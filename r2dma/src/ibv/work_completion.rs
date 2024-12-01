@@ -53,5 +53,10 @@ mod tests {
 
         wc.wc_flags = ibv_wc_flags::IBV_WC_WITH_IMM.0;
         assert_eq!(wc.imm(), Some(0));
+
+        let value = Box::new(32);
+        wc.wr_id = Box::into_raw(value) as *const _ as _;
+        let value: Box<i32> = wc.extract();
+        assert_eq!(*value, 32);
     }
 }

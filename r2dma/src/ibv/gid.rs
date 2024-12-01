@@ -71,6 +71,9 @@ mod tests {
     #[test]
     fn test_gid() {
         let mut gid = ibv_gid::default();
+        assert_eq!(gid.subnet_prefix(), 0);
+        assert_eq!(gid.interface_id(), 0);
+        assert_eq!(gid.as_ipv6().to_string(), "::");
         let bytes: DownwardBytes = gid.serialize().unwrap();
         let mut des = ibv_gid::deserialize(bytes.as_ref()).unwrap();
         assert_eq!(gid.as_mut(), des.as_mut());

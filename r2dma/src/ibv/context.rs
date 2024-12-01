@@ -2,6 +2,7 @@ use super::verbs::*;
 use super::Device;
 use crate::{Error, Result};
 
+/// A verb context that can be used for future operations on the device.
 pub type Context = super::Wrapper<ibv_context>;
 
 impl Context {

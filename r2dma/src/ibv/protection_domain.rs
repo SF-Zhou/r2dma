@@ -1,6 +1,9 @@
 use super::verbs::*;
 use crate::*;
 
+/// A Protection Domain (PD) is a security construct that defines the boundaries within which RDMA
+/// operations can be performed. It acts as a permission container that specifies which Memory
+/// Regions (MRs) and other resources can be accessed by remote machines.
 pub type ProtectionDomain = super::Wrapper<ibv_pd>;
 
 impl ProtectionDomain {

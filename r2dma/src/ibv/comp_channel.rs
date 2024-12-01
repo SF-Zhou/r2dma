@@ -3,6 +3,9 @@ use crate::*;
 
 use std::os::fd::BorrowedFd;
 
+/// A completion channel is essentially file descriptor that is used to deliver completion
+/// notifications to a userspace process.  When a completion event is generated for a completion
+/// queue (CQ), the event is delivered via the completion channel attached to that CQ.
 pub type CompChannel = super::Wrapper<ibv_comp_channel>;
 
 impl CompChannel {
@@ -79,5 +82,8 @@ mod tests {
         let comp_channel = CompChannel::create(&context).unwrap();
         comp_channel.set_nonblock().unwrap();
         println!("{:#?}", comp_channel);
+
+        let value = comp_channel.get_cq_event::<i32>().unwrap();
+        assert!(value.is_none());
     }
 }

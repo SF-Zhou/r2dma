@@ -1,6 +1,9 @@
 use super::{verbs::*, *};
 use crate::*;
 
+/// A Memory Region (MR) is a chunk of local memory that is registered with the RDMA hardware.
+/// This allows the remote machine to perform direct memory access operations (like read, write, or
+/// atomic operations) to this memory without involving the local CPU.
 pub type MemoryRegion = super::Wrapper<ibv_mr>;
 
 impl MemoryRegion {

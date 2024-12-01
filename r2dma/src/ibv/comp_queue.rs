@@ -1,5 +1,14 @@
 use super::verbs::*;
 use crate::*;
+
+/// A Completion Queue is an object which contains the completed work requests which were posted to
+/// the Work Queues (WQ). Every completion says that a specific WR was completed (both successfully
+/// completed WRs and unsuccessfully completed WRs).A Completion Queue is a mechanism to notify the
+/// application about information of ended Work Requests (status, opcode, size, source). CQs have n
+/// Completion Queue Entries (CQE). The number of CQEs is specified when the CQ is created. When a
+/// CQE is polled it is removed from the CQ. CQ is a FIFO of CQEs. CQ can service send queues,
+/// receive queues, or both. Work queues from multiple QPs can be associated with a single CQ.
+/// struct ibv_cq is used to implement a CQ.
 pub type CompQueue = super::Wrapper<ibv_cq>;
 
 impl CompQueue {
@@ -74,6 +83,7 @@ impl std::fmt::Debug for CompQueue {
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    use super::ibv_wc;
 
     #[test]
     fn test_comp_queue() {
@@ -84,5 +94,15 @@ mod tests {
 
         comp_queue.req_notify().unwrap();
         comp_queue.ack_cq_events(0);
+        comp_queue.set_cq_context(std::ptr::null_mut());
+
+        let mut wcs: Vec<ibv_wc> = vec![];
+        wcs.resize(8, ibv_wc::default());
+        let finished = comp_queue.poll_cq(&mut wcs).unwrap();
+        assert!(finished.is_empty());
+
+        drop(context);
+        drop(comp_channel);
+        comp_queue.req_notify().unwrap_err();
     }
 }
