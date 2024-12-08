@@ -13,8 +13,8 @@ impl Device {
         u64::from_be(unsafe { ibv_get_device_guid(self.as_mut_ptr()) })
     }
 
-    pub fn dev_path(&self) -> Cow<str> {
-        unsafe { CStr::from_ptr(self.dev_path.as_ptr()).to_string_lossy() }
+    pub fn ibdev_path(&self) -> Cow<str> {
+        unsafe { CStr::from_ptr(self.ibdev_path.as_ptr()).to_string_lossy() }
     }
 }
 
@@ -28,13 +28,13 @@ impl std::fmt::Debug for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = self.name();
         let guid = format!("{:016x}", self.guid());
-        let dev_path = self.dev_path();
+        let ibdev_path = self.ibdev_path();
         f.debug_struct("Device")
             .field("name", &name)
             .field("guid", &guid)
             .field("node_type", &self.node_type)
             .field("transport_type", &self.transport_type)
-            .field("dev_path", &dev_path)
+            .field("ibdev_path", &ibdev_path)
             .finish()
     }
 }
