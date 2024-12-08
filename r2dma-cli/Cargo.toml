@@ -1,6 +1,6 @@
 [package]
 name = "r2dma-cli"
-version = "0.1.1"
+version = "0.1.2"
 authors.workspace = true
 edition.workspace = true
 homepage.workspace = true
@@ -9,7 +9,7 @@ description.workspace = true
 license.workspace = true
 
 [dependencies]
-r2dma = { version = ">=0.1.2", path = "../r2dma" }
+r2dma = { version = ">=0.1.3", path = "../r2dma" }
 
 clap.workspace = true
 
