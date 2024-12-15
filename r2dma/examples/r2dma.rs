@@ -1,14 +1,47 @@
 use clap::Parser;
-use r2dma::{ibv::GidType, Result};
+use r2dma::{ibv::GidType, DeviceConfig, Result};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
-struct Args {}
+struct Args {
+    /// device filter by name.
+    #[arg(long)]
+    pub device_filter: Vec<String>,
+
+    /// enable gid type filter (IB or RoCE v2).
+    #[arg(long, default_value_t = false)]
+    pub gid_type_filter: bool,
+
+    /// RoCE v2 skip link local address.
+    #[arg(long, default_value_t = false)]
+    pub skip_link_local_addr: bool,
+
+    /// enable verbose logging.
+    #[arg(long, short, default_value_t = false)]
+    pub verbose: bool,
+}
 
 fn main() -> Result<()> {
-    let _ = Args::parse();
+    let args = Args::parse();
+    tracing_subscriber::fmt()
+        .with_max_level(if args.verbose {
+            tracing::Level::DEBUG
+        } else {
+            tracing::Level::INFO
+        })
+        .with_timer(tracing_subscriber::fmt::time::ChronoLocal::rfc_3339())
+        .init();
 
-    let devices = r2dma::Devices::open()?;
+    let mut config = DeviceConfig::default();
+    config.device_filter.extend(args.device_filter);
+    if args.gid_type_filter {
+        config.gid_type_filter = [GidType::IB, GidType::RoCEv2].into();
+    }
+    if args.skip_link_local_addr {
+        config.roce_v2_skip_link_local_addr = true;
+    }
+
+    let devices = r2dma::Devices::open(&config)?;
     for device in devices.iter() {
         println!("device: {:#?}", device.context().device());
 

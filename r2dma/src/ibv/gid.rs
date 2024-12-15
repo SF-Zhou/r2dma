@@ -1,7 +1,7 @@
 use super::*;
 use std::net::Ipv6Addr;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub enum GidType {
     IB,
     RoCEv1,
