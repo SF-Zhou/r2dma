@@ -1,0 +1,14 @@
+[package]
+name = "rpc"
+version = "0.1.0"
+authors.workspace = true
+edition = "2024"
+homepage.workspace = true
+repository.workspace = true
+description.workspace = true
+license.workspace = true
+
+[dependencies]
+derse.workspace = true
+thiserror.workspace = true
+tokio = { version = "1.42.0", features = ["full"] }

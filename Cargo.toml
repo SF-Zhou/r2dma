@@ -1,5 +1,5 @@
 [workspace]
-members = ["r2dma"]
+members = ["r2dma", "rpc"]
 resolver = "2"
 
 [workspace.package]
