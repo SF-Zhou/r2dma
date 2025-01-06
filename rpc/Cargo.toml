@@ -9,6 +9,8 @@ description.workspace = true
 license.workspace = true
 
 [dependencies]
+rpc-macro = { path = "../rpc-macro" }
+
 derse.workspace = true
 thiserror.workspace = true
 tokio = { version = "1.42.0", features = ["full"] }
