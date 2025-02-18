@@ -35,7 +35,7 @@ async fn stress_test(args: Args) {
     let start_time = std::time::Instant::now();
     let pool = Arc::new(ConnectionPool::new(64));
     let tr = Transport::new_sync(pool, args.addr);
-    let ctx = Context { tr };
+    let ctx = Context::new(tr);
     let mut tasks = vec![];
     for _ in 0..args.coroutines {
         let value = args.value.clone();
@@ -47,8 +47,9 @@ async fn stress_test(args: Args) {
                 .as_secs()
                 < args.secs
             {
+                let client = Client::default();
                 for _ in 0..4096 {
-                    let rsp = Client.echo(&ctx, &value).await;
+                    let rsp = client.echo(&ctx, &value).await;
                     assert!(rsp.is_ok());
                     counter.fetch_add(1, Ordering::AcqRel);
                 }
@@ -85,11 +86,12 @@ async fn main() {
     } else {
         let pool = Arc::new(ConnectionPool::new(4));
         let tr = Transport::new_sync(pool, args.addr);
-        let ctx = Context { tr };
-        let rsp = Client.echo(&ctx, &args.value).await;
+        let ctx = Context::new(tr);
+        let client = Client::default();
+        let rsp = client.echo(&ctx, &args.value).await;
         tracing::info!("echo rsp: {:?}", rsp);
 
-        let rsp = Client.greet(&ctx, &args.value).await;
+        let rsp = client.greet(&ctx, &args.value).await;
         tracing::info!("greet rsp: {:?}", rsp);
     }
 }

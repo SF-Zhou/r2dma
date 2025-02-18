@@ -83,13 +83,13 @@ pub fn service(_attr: TokenStream, input: TokenStream) -> TokenStream {
             #(#input_items)*
 
             fn rpc_export(
-                self: std::sync::Arc<Self>,
-            ) -> std::collections::HashMap<String, #krate::Method>
+                self: ::std::sync::Arc<Self>,
+            ) -> ::std::collections::HashMap<String, #krate::Method>
             where
                 Self: 'static + Send + Sync,
                 #(#send_bounds)*
             {
-                let mut map = std::collections::HashMap::<String, #krate::Method>::default();
+                let mut map = ::std::collections::HashMap::<String, #krate::Method>::default();
                 #(#invoke_branchs)*
                 map
             }

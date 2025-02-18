@@ -43,7 +43,7 @@ async fn test_concurrent_call() {
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
     let pool = Arc::new(ConnectionPool::new(64));
     let tr = Transport::new_sync(pool, addr);
-    let ctx = Context { tr };
+    let ctx = Context::new(tr);
 
     const N: usize = 32;
     const M: usize = 4096;
@@ -52,9 +52,10 @@ async fn test_concurrent_call() {
     for _ in 0..N {
         let ctx = ctx.clone();
         tasks.push(tokio::spawn(async move {
+            let client = Client::default();
             for _ in 0..M {
                 let req = CallReq {};
-                let rsp = Client.invoke(&ctx, &req).await;
+                let rsp = client.invoke(&ctx, &req).await;
                 assert!(rsp.is_ok());
             }
         }));

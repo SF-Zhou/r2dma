@@ -1,6 +1,10 @@
+#![feature(return_type_notation)]
+
 mod client;
 mod connection_pool;
+mod constants;
 mod context;
+pub mod r#core;
 mod error;
 mod meta;
 mod server;
@@ -8,6 +12,7 @@ mod transport;
 
 pub use client::Client;
 pub use connection_pool::*;
+pub use constants::*;
 pub use context::*;
 pub use error::{Error, Result};
 pub use meta::*;

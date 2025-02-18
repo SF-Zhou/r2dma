@@ -6,6 +6,8 @@ pub enum Error {
     SocketError(String),
     #[error("timeout: {0}")]
     Timeout(String),
+    #[error("invalid msg: {0}")]
+    InvalidMsg(String),
 }
 
 impl std::fmt::Debug for Error {

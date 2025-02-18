@@ -45,6 +45,7 @@ type DemoResult<T> = std::result::Result<T, DemoError>;
 pub trait DemoService {
     async fn foo(&self, ctx: &Context, req: &FooReq) -> DemoResult<FooRsp>;
     async fn bar(&self, ctx: &Context, req: &BarReq) -> DemoResult<BarRsp>;
+    async fn timeout(&self, ctx: &Context, req: &FooReq) -> DemoResult<FooRsp>;
 }
 
 struct DemoImpl;
@@ -59,6 +60,15 @@ impl DemoService for DemoImpl {
     async fn bar(&self, ctx: &Context, req: &BarReq) -> DemoResult<BarRsp> {
         tracing::info!("bar: ctx: {:?}, req: {:?}", ctx, req);
         Ok(BarRsp { data: req.data + 1 })
+    }
+
+    async fn timeout(&self, _ctx: &Context, req: &FooReq) -> DemoResult<FooRsp> {
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Ok(FooRsp {
+            data: req.data.clone(),
+        })
     }
 }
 
@@ -77,21 +87,27 @@ async fn test_demo_service() {
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
     let pool = Arc::new(ConnectionPool::new(16));
     let tr = Transport::new_sync(pool, addr);
-    let ctx = Context { tr };
+    let ctx = Context::new(tr);
 
+    let client = Client::default();
     let req = FooReq { data: "foo".into() };
-    let rsp = Client.foo(&ctx, &req).await;
+    let rsp = client.foo(&ctx, &req).await;
     match rsp {
         Ok(r) => assert_eq!(r.data, "foo"),
         Err(e) => assert_eq!(e.to_string(), ""),
     }
 
     let req = BarReq { data: 233 };
-    let rsp = Client.bar(&ctx, &req).await;
+    let rsp = client.bar(&ctx, &req).await;
     match rsp {
         Ok(r) => assert_eq!(r.data, 234),
         Err(e) => assert_eq!(e.to_string(), ""),
     }
+
+    let req = FooReq { data: "foo".into() };
+    let rsp = client.timeout(&ctx, &req).await;
+    tracing::info!("{rsp:?}");
+    assert!(rsp.is_err());
 
     server.stop();
     let _ = listen_handle.await;
@@ -114,14 +130,15 @@ fn test_demo_service_sync() {
 
     let pool = Arc::new(ConnectionPool::new(16));
     let tr = Transport::new_sync(pool, addr);
-    let ctx = Context { tr };
+    let ctx = Context::new(tr);
 
     let req = FooReq { data: "foo".into() };
     let current = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
-    let rsp = current.block_on(Client.foo(&ctx, &req));
+    let client = Client::default();
+    let rsp = current.block_on(client.foo(&ctx, &req));
     match rsp {
         Ok(r) => assert_eq!(r.data, "foo"),
         Err(e) => assert_eq!(e.to_string(), ""),
