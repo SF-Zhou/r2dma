@@ -1,4 +1,4 @@
-use crate::{HEADER, Result};
+use crate::{MSG_HEADER, Result};
 use derse::{Deserialize, DownwardBytes, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -14,7 +14,7 @@ impl Meta {
         self.serialize_to(&mut bytes)?;
         let len = bytes.len() as u32;
         bytes.prepend(len.to_be_bytes());
-        bytes.prepend(HEADER.to_be_bytes());
+        bytes.prepend(MSG_HEADER.to_be_bytes());
         Ok(bytes)
     }
 

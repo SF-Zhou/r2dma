@@ -17,8 +17,8 @@ impl Default for Server {
             methods: Default::default(),
         };
 
-        let core_service = Arc::new(core::CoreServiceImpl);
-        this.add_methods(core::InfoService::rpc_export(core_service.clone()));
+        let core_service = Arc::new(CoreServiceImpl);
+        this.add_methods(InfoService::rpc_export(core_service.clone()));
         this
     }
 }

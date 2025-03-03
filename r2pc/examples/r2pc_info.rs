@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2pc::{Client, ConnectionPool, Context, Result, Transport, core::InfoService};
+use r2pc::{Client, ConnectionPool, Context, InfoService, Result, Transport};
 use std::sync::Arc;
 
 #[derive(Parser, Debug, Clone)]

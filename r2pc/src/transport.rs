@@ -37,7 +37,7 @@ impl Transport {
                     .await
                     .map_err(|e| Error::SocketError(e.to_string()))?;
 
-                if (header >> 32) as u32 != HEADER {
+                if (header >> 32) as u32 != MSG_HEADER {
                     return Err(Error::InvalidMsg(format!("invalid header: {:08X}", header)));
                 }
 
@@ -86,7 +86,7 @@ impl Transport {
                     .await
                     .map_err(|e| Error::SocketError(e.to_string()))?;
 
-                if (header >> 32) as u32 != HEADER {
+                if (header >> 32) as u32 != MSG_HEADER {
                     return Err(Error::InvalidMsg(format!("invalid header: {:08X}", header)));
                 }
 
