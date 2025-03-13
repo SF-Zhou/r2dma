@@ -11,13 +11,19 @@ use crate::{ibv::*, Error, Result};
 pub type CompQueue = super::Wrapper<ibv_cq>;
 
 impl CompQueue {
-    pub fn create(context: &Context, max_cqe: u32, comp_channel: &CompChannel) -> Result<Self> {
+    pub fn create(
+        context: &Context,
+        max_cqe: u32,
+        comp_channel: Option<&CompChannel>,
+    ) -> Result<Self> {
         let comp_queue = unsafe {
             ibv_create_cq(
                 context.as_mut_ptr(),
                 max_cqe as _,
                 std::ptr::null_mut(),
-                comp_channel.as_mut_ptr(),
+                comp_channel
+                    .map(|c| c.as_mut_ptr())
+                    .unwrap_or(std::ptr::null_mut()),
                 0,
             )
         };
@@ -82,11 +88,9 @@ mod tests {
     #[test]
     fn test_comp_queue() {
         let context = Context::create_for_test();
-        let comp_channel = CompChannel::create(&context).unwrap();
-        let comp_queue = CompQueue::create(&context, 64, &comp_channel).unwrap();
+        let comp_queue = CompQueue::create(&context, 64, None).unwrap();
         println!("{:#?}", comp_queue);
 
-        comp_queue.req_notify().unwrap();
         comp_queue.ack_cq_events(0);
         comp_queue.set_cq_context(std::ptr::null_mut());
 
@@ -96,7 +100,6 @@ mod tests {
         assert!(finished.is_empty());
 
         drop(context);
-        drop(comp_channel);
         comp_queue.req_notify().unwrap_err();
     }
 }

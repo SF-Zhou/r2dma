@@ -172,7 +172,7 @@ mod tests {
     fn test_queue_pair_create() {
         let context = Context::create_for_test();
         let comp_channel = CompChannel::create(&context).unwrap();
-        let comp_queue = CompQueue::create(&context, 128, &comp_channel).unwrap();
+        let comp_queue = CompQueue::create(&context, 128, Some(&comp_channel)).unwrap();
         let pd = ProtectionDomain::create(&context).unwrap();
         let cap = ibv_qp_cap {
             max_send_wr: 64,
