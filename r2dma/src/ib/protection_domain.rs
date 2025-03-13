@@ -1,29 +1,42 @@
 use super::*;
 use crate::{verbs::*, Error, Result};
+use std::{ops::Deref, sync::Arc};
 
 /// A Protection Domain (PD) is a security construct that defines the boundaries within which RDMA
 /// operations can be performed. It acts as a permission container that specifies which Memory
 /// Regions (MRs) and other resources can be accessed by remote machines.
-pub type ProtectionDomain = super::Wrapper<ibv_pd>;
 pub struct ProtectionDomain {
-    context: Context,
+    _context: Arc<Context>,
+    ptr: *mut ibv_pd,
+}
+
+impl Drop for ProtectionDomain {
+    fn drop(&mut self) {
+        let _ = unsafe { ibv_dealloc_pd(self.ptr) };
+    }
 }
 
 impl ProtectionDomain {
-    pub fn create(context: &Context) -> Result<Self> {
-        Ok(ProtectionDomain::new(unsafe {
+    pub fn create(context: Arc<Context>) -> Result<Self> {
+        let ptr = unsafe {
             let protection_domain = ibv_alloc_pd(context.as_mut_ptr());
             if protection_domain.is_null() {
                 return Err(Error::IBAllocPDFail(std::io::Error::last_os_error()));
             }
             protection_domain
-        }))
+        };
+        Ok(Self {
+            _context: context,
+            ptr,
+        })
     }
 }
 
-impl super::Deleter for ibv_pd {
-    unsafe fn delete(ptr: *mut Self) -> i32 {
-        ibv_dealloc_pd(ptr)
+impl Deref for ProtectionDomain {
+    type Target = ibv_pd;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.ptr }
     }
 }
 
@@ -41,8 +54,11 @@ mod tests {
 
     #[test]
     fn test_pd_create() {
-        let context = Context::create_for_test();
-        let pd = ProtectionDomain::create(&context).unwrap();
+        let devices = Device::availables().unwrap();
+        assert!(!devices.is_empty());
+        let context = Context::create(devices.first().unwrap()).unwrap();
+        let context = Arc::new(context);
+        let pd = ProtectionDomain::create(context).unwrap();
         println!("pd: {:#?}", pd);
     }
 }
