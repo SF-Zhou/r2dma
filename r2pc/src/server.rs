@@ -1,14 +1,26 @@
-use crate::*;
+use super::*;
 use derse::Deserialize;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
 
 pub type Method = Box<dyn Fn(&Context, Meta, &[u8]) -> Result<()> + Send + Sync>;
 
-#[derive(Default)]
 pub struct Server {
     stop_token: tokio_util::sync::CancellationToken,
-    methods: HashMap<String, Method>,
+    pub methods: HashMap<String, Method>,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        let mut this = Self {
+            stop_token: Default::default(),
+            methods: Default::default(),
+        };
+
+        let core_service = Arc::new(CoreServiceImpl);
+        this.add_methods(InfoService::rpc_export(core_service.clone()));
+        this
+    }
 }
 
 impl Server {
@@ -65,9 +77,16 @@ impl Server {
             if let Some(func) = self.methods.get(&meta.method) {
                 let ctx = Context {
                     tr: send_tr.clone(),
+                    server: Some(self.clone()),
                 };
                 let _ = func(&ctx, meta, buf);
             }
         }
+    }
+}
+
+impl std::fmt::Debug for Server {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Server").finish()
     }
 }

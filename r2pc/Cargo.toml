@@ -9,7 +9,7 @@ description = "A Rust RPC framework."
 license.workspace = true
 
 [dependencies]
-r2pc-macro = { path = "../r2pc-macro" }
+r2pc-macro = { version = "0.1.0", path = "../r2pc-macro" }
 
 derse.workspace = true
 thiserror.workspace = true
@@ -19,4 +19,5 @@ tokio-util = "0"
 lockmap = "0"
 
 [dev-dependencies]
+clap = { version = "4", features = ["derive"] }
 tracing-subscriber = "0"
