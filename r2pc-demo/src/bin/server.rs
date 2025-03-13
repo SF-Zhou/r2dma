@@ -1,6 +1,6 @@
 use clap::Parser;
 use r2pc::{Context, Result, Server};
-use r2pc_demo::{EchoService, GreetService};
+use r2pc_demo::{EchoService, GreetService, Request};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
@@ -20,16 +20,16 @@ struct DemoImpl {
 }
 
 impl EchoService for DemoImpl {
-    async fn echo(&self, _c: &Context, r: &String) -> Result<String> {
+    async fn echo(&self, _c: &Context, r: &Request) -> Result<String> {
         self.idx.fetch_add(1, Ordering::AcqRel);
-        Ok(r.clone())
+        Ok(r.0.clone())
     }
 }
 
 impl GreetService for DemoImpl {
-    async fn greet(&self, _c: &Context, r: &String) -> Result<String> {
+    async fn greet(&self, _c: &Context, r: &Request) -> Result<String> {
         let val = self.idx.fetch_add(1, Ordering::AcqRel);
-        Ok(format!("hello {}({})!", r, val))
+        Ok(format!("hello {}({})!", r.0, val))
     }
 }
 

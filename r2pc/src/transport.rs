@@ -1,5 +1,4 @@
-use super::{Error, Result};
-use crate::ConnectionPool;
+use crate::*;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -32,12 +31,22 @@ impl Transport {
                     .write_all(bytes)
                     .await
                     .map_err(|e| Error::SocketError(e.to_string()))?;
-                let len = stream
+
+                let header = stream
                     .read_u64()
                     .await
                     .map_err(|e| Error::SocketError(e.to_string()))?;
 
-                let mut bytes = vec![0u8; len as usize];
+                if (header >> 32) as u32 != MSG_HEADER {
+                    return Err(Error::InvalidMsg(format!("invalid header: {:08X}", header)));
+                }
+
+                let len = header as u32 as usize;
+                if len >= MAX_MSG_SIZE {
+                    return Err(Error::InvalidMsg(format!("msg is too long: {}", len)));
+                }
+
+                let mut bytes = vec![0u8; len];
                 stream
                     .read_exact(&mut bytes)
                     .await
@@ -71,12 +80,22 @@ impl Transport {
             }
             Transport::AsyncTcpStream(tcp_stream) => {
                 let mut socket = tcp_stream.lock().await;
-                let len = socket
+
+                let header = socket
                     .read_u64()
                     .await
                     .map_err(|e| Error::SocketError(e.to_string()))?;
 
-                let mut bytes = vec![0u8; len as usize];
+                if (header >> 32) as u32 != MSG_HEADER {
+                    return Err(Error::InvalidMsg(format!("invalid header: {:08X}", header)));
+                }
+
+                let len = header as u32 as usize;
+                if len >= MAX_MSG_SIZE {
+                    return Err(Error::InvalidMsg(format!("msg is too long: {}", len)));
+                }
+
+                let mut bytes = vec![0u8; len];
                 socket
                     .read_exact(&mut bytes)
                     .await
