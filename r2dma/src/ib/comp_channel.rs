@@ -16,6 +16,9 @@ impl Drop for CompChannel {
     }
 }
 
+unsafe impl Send for CompChannel {}
+unsafe impl Sync for CompChannel {}
+
 impl CompChannel {
     pub fn create(context: Arc<Context>) -> Result<Self> {
         let ptr = unsafe { ibv_create_comp_channel(context.as_mut_ptr()) };

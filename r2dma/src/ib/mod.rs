@@ -12,3 +12,6 @@ pub use protection_domain::ProtectionDomain;
 
 mod comp_channel;
 pub use comp_channel::CompChannel;
+
+mod comp_queue;
+pub use comp_queue::CompQueue;
