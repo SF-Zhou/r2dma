@@ -7,10 +7,10 @@ mod gid;
 mod memory_region;
 mod protection_domain;
 mod queue_pair;
-mod verbs;
 mod work_completion;
 mod wrapper;
 
+pub use crate::verbs::*;
 pub use comp_channel::CompChannel;
 pub use comp_queue::CompQueue;
 pub use context::Context;
@@ -20,5 +20,4 @@ pub use gid::GidType;
 pub use memory_region::MemoryRegion;
 pub use protection_domain::ProtectionDomain;
 pub use queue_pair::{QueuePair, ACCESS_FLAGS};
-pub use verbs::*;
 pub use wrapper::{Deleter, Wrapper};
