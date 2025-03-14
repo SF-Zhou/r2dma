@@ -1,4 +1,4 @@
-use crate::ibv;
+use crate::ib;
 use std::collections::HashSet;
 
 #[derive(Debug, Default)]
@@ -9,6 +9,6 @@ pub struct Config {
 #[derive(Debug, Default)]
 pub struct DeviceConfig {
     pub device_filter: HashSet<String>,
-    pub gid_type_filter: HashSet<ibv::GidType>,
+    pub gid_type_filter: HashSet<ib::GidType>,
     pub roce_v2_skip_link_local_addr: bool,
 }
