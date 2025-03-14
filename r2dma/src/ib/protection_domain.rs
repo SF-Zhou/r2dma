@@ -30,6 +30,10 @@ impl ProtectionDomain {
             ptr,
         })
     }
+
+    pub(crate) fn as_mut_ptr(&self) -> *mut ibv_pd {
+        self.ptr
+    }
 }
 
 impl Deref for ProtectionDomain {
