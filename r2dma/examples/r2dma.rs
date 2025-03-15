@@ -41,8 +41,8 @@ fn main() -> Result<()> {
         config.roce_v2_skip_link_local_addr = true;
     }
 
-    let devices = r2dma::Devices::open(&config)?;
-    for device in devices.iter() {
+    let devices = r2dma::Device::avaiables(&config)?;
+    for device in devices {
         println!("device: {:#?}", device.context().device());
 
         for port in device.ports() {

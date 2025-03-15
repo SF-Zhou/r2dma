@@ -1,24 +1,30 @@
-mod comp_channel;
-mod comp_queue;
-mod context;
-mod device;
-mod device_list;
-mod gid;
-mod memory_region;
-mod protection_domain;
-mod queue_pair;
 mod verbs;
-mod work_completion;
-mod wrapper;
-
-pub use comp_channel::CompChannel;
-pub use comp_queue::CompQueue;
-pub use context::Context;
-pub use device::Device;
-pub use device_list::DeviceList;
-pub use gid::GidType;
-pub use memory_region::MemoryRegion;
-pub use protection_domain::ProtectionDomain;
-pub use queue_pair::{QueuePair, ACCESS_FLAGS};
 pub use verbs::*;
-pub use wrapper::{Deleter, Wrapper};
+
+mod devices;
+pub use devices::Device;
+
+mod gid;
+pub use gid::GidType;
+
+mod context;
+pub use context::Context;
+
+mod protection_domain;
+pub use protection_domain::ProtectionDomain;
+
+mod comp_channel;
+pub use comp_channel::CompChannel;
+
+mod comp_queue;
+pub use comp_queue::CompQueue;
+
+mod memory_region;
+pub use memory_region::MemoryRegion;
+
+mod work_completion;
+
+pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
+    | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0
+    | ibv_access_flags::IBV_ACCESS_REMOTE_READ.0
+    | ibv_access_flags::IBV_ACCESS_RELAXED_ORDERING.0;

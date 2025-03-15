@@ -1,4 +1,4 @@
-use super::*;
+use super::ibv_gid;
 use std::net::Ipv6Addr;
 
 #[derive(Debug, PartialEq, Eq, Hash)]

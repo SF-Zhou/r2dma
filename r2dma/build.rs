@@ -76,7 +76,8 @@ fn main() {
         .no_copy("ibv_context")
         .no_copy("ibv_cq")
         .no_copy("ibv_qp")
-        .no_copy("ibv_srq");
+        .no_copy("ibv_srq")
+        .no_debug("ibv_device");
 
     builder
         .generate()

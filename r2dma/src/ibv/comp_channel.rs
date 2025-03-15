@@ -1,20 +1,36 @@
-use crate::{ibv::*, Error, Result};
-use std::os::fd::BorrowedFd;
+use super::*;
+use crate::{Error, Result};
+use std::{ops::Deref, os::fd::BorrowedFd, sync::Arc};
 
 /// A completion channel is essentially file descriptor that is used to deliver completion
 /// notifications to a userspace process.  When a completion event is generated for a completion
 /// queue (CQ), the event is delivered via the completion channel attached to that CQ.
-pub type CompChannel = super::Wrapper<ibv_comp_channel>;
+pub struct CompChannel {
+    _context: Arc<Context>,
+    ptr: *mut ibv_comp_channel,
+}
+
+impl Drop for CompChannel {
+    fn drop(&mut self) {
+        let _ = unsafe { ibv_destroy_comp_channel(self.ptr) };
+    }
+}
+
+unsafe impl Send for CompChannel {}
+unsafe impl Sync for CompChannel {}
 
 impl CompChannel {
-    pub fn create(context: &Context) -> Result<Self> {
-        let channel = unsafe { ibv_create_comp_channel(context.as_mut_ptr()) };
-        if channel.is_null() {
+    pub fn create(context: Arc<Context>) -> Result<Self> {
+        let ptr = unsafe { ibv_create_comp_channel(context.as_mut_ptr()) };
+        if ptr.is_null() {
             return Err(Error::IBCreateCompChannelFail(
                 std::io::Error::last_os_error(),
             ));
         }
-        Ok(Self::new(channel))
+        Ok(Self {
+            _context: context,
+            ptr,
+        })
     }
 
     pub fn fd(&self) -> BorrowedFd {
@@ -42,7 +58,7 @@ impl CompChannel {
     pub fn get_cq_event<T>(&self) -> Result<Option<&mut T>> {
         let mut comp_queue: *mut ibv_cq = std::ptr::null_mut();
         let mut cq_context: *mut std::ffi::c_void = std::ptr::null_mut();
-        let ret = unsafe { ibv_get_cq_event(self.as_mut_ptr(), &mut comp_queue, &mut cq_context) };
+        let ret = unsafe { ibv_get_cq_event(self.ptr, &mut comp_queue, &mut cq_context) };
         if ret == 0 {
             Ok(Some(unsafe { &mut *(cq_context as *mut _) }))
         } else if std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock {
@@ -53,11 +69,17 @@ impl CompChannel {
             ))
         }
     }
+
+    pub(crate) fn as_mut_ptr(&self) -> *mut ibv_comp_channel {
+        self.ptr
+    }
 }
 
-impl super::Deleter for ibv_comp_channel {
-    unsafe fn delete(ptr: *mut Self) -> i32 {
-        ibv_destroy_comp_channel(ptr)
+impl Deref for CompChannel {
+    type Target = ibv_comp_channel;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.ptr }
     }
 }
 
@@ -77,8 +99,9 @@ mod tests {
 
     #[test]
     fn test_comp_channel() {
-        let context = Context::create_for_test();
-        let comp_channel = CompChannel::create(&context).unwrap();
+        let devices = Device::availables().unwrap();
+        let context = Arc::new(Context::create(devices.first().unwrap()).unwrap());
+        let comp_channel = CompChannel::create(context.clone()).unwrap();
         comp_channel.set_nonblock().unwrap();
         assert_ne!(comp_channel.fd().as_raw_fd(), -1);
         println!("{:#?}", comp_channel);
@@ -90,6 +113,6 @@ mod tests {
         comp_channel.set_nonblock().unwrap_err();
 
         unsafe { std::fs::File::from_raw_fd(context.cmd_fd) };
-        CompChannel::create(&context).unwrap_err();
+        CompChannel::create(context).unwrap_err();
     }
 }
