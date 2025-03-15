@@ -1,6 +1,6 @@
 use super::*;
 use crate::{Error, Result};
-use std::ops::Deref;
+use std::{ops::Deref, sync::Arc};
 
 /// A verb context that can be used for future operations on the device.
 pub struct Context {
@@ -18,7 +18,7 @@ unsafe impl Send for Context {}
 unsafe impl Sync for Context {}
 
 impl Context {
-    pub fn create(device: &Device) -> Result<Self> {
+    pub fn create(device: &Device) -> Result<Arc<Self>> {
         let ptr = unsafe {
             let context = ibv_open_device(device.as_mut_ptr());
             if context.is_null() {
@@ -26,10 +26,10 @@ impl Context {
             }
             context
         };
-        Ok(Self {
+        Ok(Arc::new(Self {
             device: device.clone(),
             ptr,
-        })
+        }))
     }
 
     pub fn device(&self) -> &Device {

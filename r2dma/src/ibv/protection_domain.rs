@@ -20,7 +20,7 @@ unsafe impl Send for ProtectionDomain {}
 unsafe impl Sync for ProtectionDomain {}
 
 impl ProtectionDomain {
-    pub fn create(context: Arc<Context>) -> Result<Self> {
+    pub fn create(context: &Arc<Context>) -> Result<Arc<Self>> {
         let ptr = unsafe {
             let protection_domain = ibv_alloc_pd(context.as_mut_ptr());
             if protection_domain.is_null() {
@@ -28,10 +28,10 @@ impl ProtectionDomain {
             }
             protection_domain
         };
-        Ok(Self {
-            _context: context,
+        Ok(Arc::new(Self {
+            _context: context.clone(),
             ptr,
-        })
+        }))
     }
 
     pub(crate) fn as_mut_ptr(&self) -> *mut ibv_pd {
@@ -64,8 +64,7 @@ mod tests {
         let devices = Device::availables().unwrap();
         assert!(!devices.is_empty());
         let context = Context::create(devices.first().unwrap()).unwrap();
-        let context = Arc::new(context);
-        let pd = ProtectionDomain::create(context).unwrap();
+        let pd = ProtectionDomain::create(&context).unwrap();
         println!("pd: {:#?}", pd);
     }
 }

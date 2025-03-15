@@ -20,17 +20,17 @@ unsafe impl Send for CompChannel {}
 unsafe impl Sync for CompChannel {}
 
 impl CompChannel {
-    pub fn create(context: Arc<Context>) -> Result<Self> {
+    pub fn create(context: &Arc<Context>) -> Result<Arc<Self>> {
         let ptr = unsafe { ibv_create_comp_channel(context.as_mut_ptr()) };
         if ptr.is_null() {
             return Err(Error::IBCreateCompChannelFail(
                 std::io::Error::last_os_error(),
             ));
         }
-        Ok(Self {
-            _context: context,
+        Ok(Arc::new(Self {
+            _context: context.clone(),
             ptr,
-        })
+        }))
     }
 
     pub fn fd(&self) -> BorrowedFd {
@@ -100,8 +100,8 @@ mod tests {
     #[test]
     fn test_comp_channel() {
         let devices = Device::availables().unwrap();
-        let context = Arc::new(Context::create(devices.first().unwrap()).unwrap());
-        let comp_channel = CompChannel::create(context.clone()).unwrap();
+        let context = Context::create(devices.first().unwrap()).unwrap();
+        let comp_channel = CompChannel::create(&context).unwrap();
         comp_channel.set_nonblock().unwrap();
         assert_ne!(comp_channel.fd().as_raw_fd(), -1);
         println!("{:#?}", comp_channel);
@@ -113,6 +113,6 @@ mod tests {
         comp_channel.set_nonblock().unwrap_err();
 
         unsafe { std::fs::File::from_raw_fd(context.cmd_fd) };
-        CompChannel::create(context).unwrap_err();
+        CompChannel::create(&context).unwrap_err();
     }
 }

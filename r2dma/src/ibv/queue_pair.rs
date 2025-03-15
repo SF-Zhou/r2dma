@@ -1,12 +1,7 @@
 use super::*;
-use crate::*;
+use crate::{Error, Result};
 use derse::{Deserialize, Serialize};
-use std::ffi::c_int;
-
-pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
-    | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0
-    | ibv_access_flags::IBV_ACCESS_REMOTE_READ.0
-    | ibv_access_flags::IBV_ACCESS_RELAXED_ORDERING.0;
+use std::{ffi::c_int, ops::Deref, sync::Arc};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Endpoint {
@@ -15,12 +10,22 @@ pub struct Endpoint {
     pub gid: ibv_gid,
 }
 
-pub type QueuePair = super::Wrapper<ibv_qp>;
+pub struct QueuePair {
+    _pd: Arc<ProtectionDomain>,
+    _comp_queue: Arc<CompQueue>,
+    ptr: *mut ibv_qp,
+}
+
+impl Drop for QueuePair {
+    fn drop(&mut self) {
+        let _ = unsafe { ibv_destroy_qp(self.ptr) };
+    }
+}
 
 impl QueuePair {
     pub fn create(
-        pd: &ibv::ProtectionDomain,
-        comp_queue: &CompQueue,
+        pd: &Arc<ProtectionDomain>,
+        comp_queue: &Arc<CompQueue>,
         cap: ibv_qp_cap,
     ) -> Result<Self> {
         let mut attr = ibv_qp_init_attr {
@@ -32,11 +37,15 @@ impl QueuePair {
             qp_type: ibv_qp_type::IBV_QPT_RC,
             sq_sig_all: 0,
         };
-        let queue_pair = unsafe { ibv_create_qp(pd.as_mut_ptr(), &mut attr) };
-        if queue_pair.is_null() {
+        let ptr = unsafe { ibv_create_qp(pd.as_mut_ptr(), &mut attr) };
+        if ptr.is_null() {
             return Err(Error::IBCreateQueuePairFail(std::io::Error::last_os_error()));
         }
-        Ok(Self::new(queue_pair))
+        Ok(Self {
+            _pd: pd.clone(),
+            _comp_queue: comp_queue.clone(),
+            ptr,
+        })
     }
 
     pub fn init(&mut self, port_num: u8, pkey_index: u16) -> Result<()> {
@@ -48,12 +57,14 @@ impl QueuePair {
             ..Default::default()
         };
 
-        let mask = ibv_qp_attr_mask::IBV_QP_PKEY_INDEX
-            | ibv_qp_attr_mask::IBV_QP_STATE
-            | ibv_qp_attr_mask::IBV_QP_PORT
-            | ibv_qp_attr_mask::IBV_QP_ACCESS_FLAGS;
+        const MASK: ibv_qp_attr_mask = ibv_qp_attr_mask(
+            ibv_qp_attr_mask::IBV_QP_PKEY_INDEX.0
+                | ibv_qp_attr_mask::IBV_QP_STATE.0
+                | ibv_qp_attr_mask::IBV_QP_PORT.0
+                | ibv_qp_attr_mask::IBV_QP_ACCESS_FLAGS.0,
+        );
 
-        self.modify_qp(&mut attr, mask)
+        self.modify_qp(&mut attr, MASK)
     }
 
     pub fn ready_to_recv(&self, remote: &Endpoint) -> Result<()> {
@@ -82,15 +93,17 @@ impl QueuePair {
             ..Default::default()
         };
 
-        let mask = ibv_qp_attr_mask::IBV_QP_STATE
-            | ibv_qp_attr_mask::IBV_QP_AV
-            | ibv_qp_attr_mask::IBV_QP_PATH_MTU
-            | ibv_qp_attr_mask::IBV_QP_DEST_QPN
-            | ibv_qp_attr_mask::IBV_QP_RQ_PSN
-            | ibv_qp_attr_mask::IBV_QP_MAX_DEST_RD_ATOMIC
-            | ibv_qp_attr_mask::IBV_QP_MIN_RNR_TIMER;
+        const MASK: ibv_qp_attr_mask = ibv_qp_attr_mask(
+            ibv_qp_attr_mask::IBV_QP_STATE.0
+                | ibv_qp_attr_mask::IBV_QP_AV.0
+                | ibv_qp_attr_mask::IBV_QP_PATH_MTU.0
+                | ibv_qp_attr_mask::IBV_QP_DEST_QPN.0
+                | ibv_qp_attr_mask::IBV_QP_RQ_PSN.0
+                | ibv_qp_attr_mask::IBV_QP_MAX_DEST_RD_ATOMIC.0
+                | ibv_qp_attr_mask::IBV_QP_MIN_RNR_TIMER.0,
+        );
 
-        self.modify_qp(&mut attr, mask)
+        self.modify_qp(&mut attr, MASK)
     }
 
     pub fn ready_to_send(&self) -> Result<()> {
@@ -104,14 +117,16 @@ impl QueuePair {
             ..Default::default()
         };
 
-        let mask = ibv_qp_attr_mask::IBV_QP_STATE
-            | ibv_qp_attr_mask::IBV_QP_TIMEOUT
-            | ibv_qp_attr_mask::IBV_QP_RETRY_CNT
-            | ibv_qp_attr_mask::IBV_QP_RNR_RETRY
-            | ibv_qp_attr_mask::IBV_QP_SQ_PSN
-            | ibv_qp_attr_mask::IBV_QP_MAX_QP_RD_ATOMIC;
+        const MASK: ibv_qp_attr_mask = ibv_qp_attr_mask(
+            ibv_qp_attr_mask::IBV_QP_STATE.0
+                | ibv_qp_attr_mask::IBV_QP_TIMEOUT.0
+                | ibv_qp_attr_mask::IBV_QP_RETRY_CNT.0
+                | ibv_qp_attr_mask::IBV_QP_RNR_RETRY.0
+                | ibv_qp_attr_mask::IBV_QP_SQ_PSN.0
+                | ibv_qp_attr_mask::IBV_QP_MAX_QP_RD_ATOMIC.0,
+        );
 
-        self.modify_qp(&mut attr, mask)
+        self.modify_qp(&mut attr, MASK)
     }
 
     pub fn set_error(&self) {
@@ -120,35 +135,42 @@ impl QueuePair {
             ..Default::default()
         };
 
-        let mask = ibv_qp_attr_mask::IBV_QP_STATE;
+        const MASK: ibv_qp_attr_mask = ibv_qp_attr_mask::IBV_QP_STATE;
 
         // assuming this operation succeeds.
-        self.modify_qp(&mut attr, mask).unwrap()
+        self.modify_qp(&mut attr, MASK).unwrap()
     }
 
     pub fn post_send(&self, wr: &mut ibv_send_wr) -> c_int {
         let mut bad_wr = std::ptr::null_mut();
-        unsafe { ibv_post_send(self.as_mut_ptr(), wr, &mut bad_wr) }
+        unsafe { ibv_post_send(self.ptr, wr, &mut bad_wr) }
     }
 
     pub fn post_recv(&self, wr: &mut ibv_recv_wr) -> c_int {
         let mut bad_wr = std::ptr::null_mut();
-        unsafe { ibv_post_recv(self.as_mut_ptr(), wr, &mut bad_wr) }
+        unsafe { ibv_post_recv(self.ptr, wr, &mut bad_wr) }
     }
 
     fn modify_qp(&self, attr: &mut ibv_qp_attr, mask: ibv_qp_attr_mask) -> Result<()> {
-        let ret = unsafe { ibv_modify_qp(self.as_mut_ptr(), attr, mask.0 as _) };
+        let ret = unsafe { ibv_modify_qp(self.ptr, attr, mask.0 as _) };
         if ret == 0_i32 {
             Ok(())
         } else {
             Err(Error::IBModifyQueuePairFail(std::io::Error::last_os_error()))
         }
     }
+
+    #[allow(unused)]
+    pub fn as_mut_ptr(&self) -> *mut ibv_qp {
+        self.ptr
+    }
 }
 
-impl super::Deleter for ibv_qp {
-    unsafe fn delete(ptr: *mut Self) -> i32 {
-        ibv_destroy_qp(ptr)
+impl Deref for QueuePair {
+    type Target = ibv_qp;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.ptr }
     }
 }
 
@@ -166,13 +188,13 @@ impl std::fmt::Debug for QueuePair {
 
 #[cfg(test)]
 mod tests {
-    use super::super::*;
+    use super::*;
 
     #[test]
     fn test_queue_pair_create() {
-        let context = Context::create_for_test();
-        let comp_channel = CompChannel::create(&context).unwrap();
-        let comp_queue = CompQueue::create(&context, 128, Some(&comp_channel)).unwrap();
+        let devices = Device::availables().unwrap();
+        let context = Context::create(devices.first().unwrap()).unwrap();
+        let comp_queue = CompQueue::create(&context, 128, None).unwrap();
         let pd = ProtectionDomain::create(&context).unwrap();
         let cap = ibv_qp_cap {
             max_send_wr: 64,
@@ -183,7 +205,6 @@ mod tests {
         };
         let mut queue_pair = QueuePair::create(&pd, &comp_queue, cap).unwrap();
         println!("{:#?}", queue_pair);
-        println!("{:#?}", unsafe { &*queue_pair.as_mut_ptr() });
 
         queue_pair.init(1, 0).unwrap();
         queue_pair.set_error();

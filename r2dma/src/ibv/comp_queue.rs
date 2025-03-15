@@ -22,19 +22,21 @@ impl Drop for CompQueue {
     }
 }
 
+unsafe impl Send for CompQueue {}
+unsafe impl Sync for CompQueue {}
+
 impl CompQueue {
     pub fn create(
-        context: Arc<Context>,
+        context: &Arc<Context>,
         max_cqe: u32,
-        comp_channel: Option<Arc<CompChannel>>,
-    ) -> Result<Self> {
+        comp_channel: Option<&Arc<CompChannel>>,
+    ) -> Result<Arc<Self>> {
         let ptr = unsafe {
             ibv_create_cq(
                 context.as_mut_ptr(),
                 max_cqe as _,
                 std::ptr::null_mut(),
                 comp_channel
-                    .as_ref()
                     .map(|c| c.as_mut_ptr())
                     .unwrap_or(std::ptr::null_mut()),
                 0,
@@ -43,11 +45,11 @@ impl CompQueue {
         if ptr.is_null() {
             return Err(Error::IBCreateCompQueueFail(std::io::Error::last_os_error()));
         }
-        Ok(Self {
-            _context: context,
-            comp_channel,
+        Ok(Arc::new(Self {
+            _context: context.clone(),
+            comp_channel: comp_channel.cloned(),
             ptr,
-        })
+        }))
     }
 
     pub fn req_notify(&self) -> Result<()> {
@@ -117,8 +119,8 @@ mod tests {
     #[test]
     fn test_comp_queue() {
         let devices = Device::availables().unwrap();
-        let context = Arc::new(Context::create(devices.first().unwrap()).unwrap());
-        let comp_queue = CompQueue::create(context.clone(), 64, None).unwrap();
+        let context = Context::create(devices.first().unwrap()).unwrap();
+        let comp_queue = CompQueue::create(&context, 64, None).unwrap();
         println!("{:#?}", comp_queue);
 
         comp_queue.req_notify().unwrap_err();
@@ -130,8 +132,8 @@ mod tests {
         let finished = comp_queue.poll_cq(&mut wcs).unwrap();
         assert!(finished.is_empty());
 
-        let comp_channel = Arc::new(CompChannel::create(context.clone()).unwrap());
-        let comp_queue = CompQueue::create(context.clone(), 64, Some(comp_channel)).unwrap();
+        let comp_channel = CompChannel::create(&context).unwrap();
+        let comp_queue = CompQueue::create(&context, 64, Some(&comp_channel)).unwrap();
         comp_queue.req_notify().unwrap();
     }
 }

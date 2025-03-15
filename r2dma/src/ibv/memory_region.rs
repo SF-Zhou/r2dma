@@ -65,8 +65,8 @@ mod tests {
     #[test]
     fn test_memory_region_create() {
         let devices = Device::availables().unwrap();
-        let context = Arc::new(Context::create(devices.first().unwrap()).unwrap());
-        let pd = Arc::new(ProtectionDomain::create(context.clone()).unwrap());
+        let context = Context::create(devices.first().unwrap()).unwrap();
+        let pd = Arc::new(ProtectionDomain::create(&context).unwrap());
         let bytes = vec![0u8; 16];
         let mr = MemoryRegion::create(&pd, &bytes);
         println!("{:#?}", mr);
