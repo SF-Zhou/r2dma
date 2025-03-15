@@ -1,34 +1,34 @@
 use super::DeviceConfig;
-use crate::{ib, verbs, Result};
+use crate::{ibv, Result};
 use std::{borrow::Cow, sync::Arc};
 
 /// Represents an RDMA device with its associated context, protection domain, port attributes, and GID.
 #[derive(Debug)]
 pub struct Device {
-    /// The protection domain associated with the device.
-    pd: ib::ProtectionDomain,
     /// The context associated with the device.
-    context: Arc<ib::Context>,
+    context: Arc<ibv::Context>,
     /// The attributes of the device,
-    device_attr: verbs::ibv_device_attr,
+    device_attr: ibv::ibv_device_attr,
     /// The ports on the device.
     ports: Vec<Port>,
+    /// The protection domain associated with the device.
+    pd: ibv::ProtectionDomain,
 }
 
 #[derive(Debug)]
 pub struct Port {
     pub port_num: u8,
     /// The attributes of the port.
-    pub port_attr: verbs::ibv_port_attr,
+    pub port_attr: ibv::ibv_port_attr,
     /// The GID (Global Identifier) list of the port.
-    pub gids: Vec<(u16, verbs::ibv_gid, ib::GidType)>,
+    pub gids: Vec<(u16, ibv::ibv_gid, ibv::GidType)>,
 }
 
 impl Device {
     pub fn avaiables(config: &DeviceConfig) -> Result<Vec<Self>> {
         let mut devices = vec![];
 
-        for device in ib::Device::availables()? {
+        for device in ibv::Device::availables()? {
             let device = Device::open(&device, config)?;
             if !config.device_filter.is_empty()
                 && !config.device_filter.contains(device.name().as_ref())
@@ -46,9 +46,9 @@ impl Device {
         Ok(devices)
     }
 
-    pub fn open(device: &ib::Device, config: &DeviceConfig) -> Result<Self> {
-        let context = Arc::new(ib::Context::create(device)?);
-        let pd = ib::ProtectionDomain::create(context.clone())?;
+    pub fn open(device: &ibv::Device, config: &DeviceConfig) -> Result<Self> {
+        let context = Arc::new(ibv::Context::create(device)?);
+        let pd = ibv::ProtectionDomain::create(context.clone())?;
         let device_attr = context.query_device()?;
 
         let mut ports = vec![];
@@ -65,7 +65,7 @@ impl Device {
                         continue;
                     }
 
-                    if config.roce_v2_skip_link_local_addr && gid_type == ib::GidType::RoCEv2 {
+                    if config.roce_v2_skip_link_local_addr && gid_type == ibv::GidType::RoCEv2 {
                         let ip = gid.as_ipv6();
                         if ip.is_unicast_link_local() {
                             continue;
@@ -84,18 +84,18 @@ impl Device {
         }
 
         Ok(Self {
-            pd,
             context,
             device_attr,
             ports,
+            pd,
         })
     }
 
-    pub fn pd(&self) -> &ib::ProtectionDomain {
+    pub fn pd(&self) -> &ibv::ProtectionDomain {
         &self.pd
     }
 
-    pub fn context(&self) -> &ib::Context {
+    pub fn context(&self) -> &ibv::Context {
         &self.context
     }
 
@@ -107,7 +107,7 @@ impl Device {
         self.context.device().name()
     }
 
-    pub fn device_attr(&self) -> &verbs::ibv_device_attr {
+    pub fn device_attr(&self) -> &ibv::ibv_device_attr {
         &self.device_attr
     }
 
@@ -124,7 +124,7 @@ mod tests {
     fn test_ib_device() {
         let config = DeviceConfig {
             device_filter: Default::default(),
-            gid_type_filter: [ib::GidType::IB, ib::GidType::RoCEv2].into(),
+            gid_type_filter: [ibv::GidType::IB, ibv::GidType::RoCEv2].into(),
             roce_v2_skip_link_local_addr: true,
         };
         let devices = Device::avaiables(&config).unwrap();

@@ -1,27 +1,44 @@
-use crate::{ibv::*, Error, Result};
-use std::path::PathBuf;
+use super::*;
+use crate::{Error, Result};
+use std::ops::Deref;
 
 /// A verb context that can be used for future operations on the device.
-pub type Context = super::Wrapper<ibv_context>;
+pub struct Context {
+    device: Device,
+    ptr: *mut ibv_context,
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        let _ = unsafe { ibv_close_device(self.ptr) };
+    }
+}
+
+unsafe impl Send for Context {}
+unsafe impl Sync for Context {}
 
 impl Context {
     pub fn create(device: &Device) -> Result<Self> {
-        Ok(Self::new(unsafe {
+        let ptr = unsafe {
             let context = ibv_open_device(device.as_mut_ptr());
             if context.is_null() {
                 return Err(Error::IBOpenDeviceFail(std::io::Error::last_os_error()));
             }
             context
-        }))
+        };
+        Ok(Self {
+            device: device.clone(),
+            ptr,
+        })
     }
 
     pub fn device(&self) -> &Device {
-        unsafe { std::mem::transmute(&self.device) }
+        &self.device
     }
 
     pub fn query_device(&self) -> Result<ibv_device_attr> {
         let mut device_attr = ibv_device_attr::default();
-        let ret = unsafe { ibv_query_device(self.as_mut_ptr(), &mut device_attr) };
+        let ret = unsafe { ibv_query_device(self.ptr, &mut device_attr) };
         if ret == 0 {
             Ok(device_attr)
         } else {
@@ -31,8 +48,7 @@ impl Context {
 
     pub fn query_gid(&self, port_num: u8, gid_index: u16) -> Result<ibv_gid> {
         let mut gid = ibv_gid::default();
-        let ret =
-            unsafe { ibv_query_gid(self.as_mut_ptr(), port_num as _, gid_index as _, &mut gid) };
+        let ret = unsafe { ibv_query_gid(self.ptr, port_num as _, gid_index as _, &mut gid) };
         if ret == 0 && !gid.is_null() {
             Ok(gid)
         } else {
@@ -41,7 +57,9 @@ impl Context {
     }
 
     pub fn query_gid_type(&self, port_num: u8, gid_index: u16) -> Result<GidType> {
-        let path = PathBuf::from(self.device().ibdev_path().to_string())
+        let path = self
+            .device()
+            .ibdev_path()
             .join(format!("ports/{}/gid_attrs/types/{}", port_num, gid_index));
         match std::fs::read_to_string(path) {
             Ok(content) => {
@@ -64,8 +82,7 @@ impl Context {
 
     pub fn query_port(&self, port_num: u8) -> Result<ibv_port_attr> {
         let mut port_attr = std::mem::MaybeUninit::<ibv_port_attr>::uninit();
-        let ret =
-            unsafe { ibv_query_port(self.as_mut_ptr(), port_num, port_attr.as_mut_ptr() as _) };
+        let ret = unsafe { ibv_query_port(self.ptr, port_num, port_attr.as_mut_ptr() as _) };
         if ret == 0 {
             Ok(unsafe { port_attr.assume_init() })
         } else {
@@ -73,17 +90,16 @@ impl Context {
         }
     }
 
-    #[cfg(test)]
-    pub fn create_for_test() -> Self {
-        let list = super::DeviceList::available().unwrap();
-        let first_device = list.first().unwrap();
-        Context::create(first_device).unwrap()
+    pub(crate) fn as_mut_ptr(&self) -> *mut ibv_context {
+        self.ptr
     }
 }
 
-impl super::Deleter for ibv_context {
-    unsafe fn delete(ptr: *mut Self) -> i32 {
-        ibv_close_device(ptr)
+impl Deref for Context {
+    type Target = ibv_context;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.ptr }
     }
 }
 
@@ -106,7 +122,9 @@ mod tests {
 
     #[test]
     fn test_context() {
-        let context = Context::create_for_test();
+        let devices = Device::availables().unwrap();
+        assert!(!devices.is_empty());
+        let context = Context::create(devices.first().unwrap()).unwrap();
         println!("context: {:#?}", context);
 
         let device_attr = context.query_device().unwrap();

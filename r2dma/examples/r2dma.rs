@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2dma::{ib::GidType, DeviceConfig, Result};
+use r2dma::{ibv::GidType, DeviceConfig, Result};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
