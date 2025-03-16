@@ -55,7 +55,7 @@ impl std::fmt::Debug for ibv_gid {
 
 impl derse::Serialize for ibv_gid {
     fn serialize_to<S: derse::Serializer>(&self, serializer: &mut S) -> derse::Result<()> {
-        serializer.prepend(self.as_raw())
+        self.as_raw().serialize_to(serializer)
     }
 }
 
@@ -65,8 +65,7 @@ impl<'a> derse::Deserialize<'a> for ibv_gid {
         Self: Sized,
     {
         let mut gid = ibv_gid::default();
-        let data = buf.pop(gid.as_mut().len())?;
-        gid.as_mut().copy_from_slice(&data);
+        gid.raw = <[u8; 16]>::deserialize_from(buf)?;
         Ok(gid)
     }
 }
