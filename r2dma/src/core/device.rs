@@ -12,7 +12,7 @@ pub struct Device {
     /// The ports on the device.
     ports: Vec<Port>,
     /// The protection domain associated with the device.
-    pd: ibv::ProtectionDomain,
+    pd: Arc<ibv::ProtectionDomain>,
 }
 
 #[derive(Debug)]
@@ -47,8 +47,8 @@ impl Device {
     }
 
     pub fn open(device: &ibv::Device, config: &DeviceConfig) -> Result<Self> {
-        let context = Arc::new(ibv::Context::create(device)?);
-        let pd = ibv::ProtectionDomain::create(context.clone())?;
+        let context = ibv::Context::create(device)?;
+        let pd = ibv::ProtectionDomain::create(&context)?;
         let device_attr = context.query_device()?;
 
         let mut ports = vec![];
