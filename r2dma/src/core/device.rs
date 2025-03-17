@@ -15,6 +15,8 @@ pub struct Device {
     pd: Arc<ibv::ProtectionDomain>,
 }
 
+pub type Devices = Vec<Device>;
+
 #[derive(Debug)]
 pub struct Port {
     pub port_num: u8,
@@ -25,7 +27,7 @@ pub struct Port {
 }
 
 impl Device {
-    pub fn avaiables(config: &DeviceConfig) -> Result<Vec<Self>> {
+    pub fn avaiables(config: &DeviceConfig) -> Result<Devices> {
         let mut devices = vec![];
 
         for device in ibv::Device::availables()? {

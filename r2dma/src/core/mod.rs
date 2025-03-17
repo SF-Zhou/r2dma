@@ -2,4 +2,4 @@ mod config;
 pub use config::{Config, DeviceConfig};
 
 mod device;
-pub use device::Device;
+pub use device::{Device, Devices};
