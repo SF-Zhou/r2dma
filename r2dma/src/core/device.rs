@@ -105,7 +105,7 @@ impl Device {
         })
     }
 
-    pub fn pd(&self) -> &ibv::ProtectionDomain {
+    pub fn pd(&self) -> &Arc<ibv::ProtectionDomain> {
         &self.pd
     }
 
