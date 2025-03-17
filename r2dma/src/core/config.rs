@@ -10,5 +10,6 @@ pub struct Config {
 pub struct DeviceConfig {
     pub device_filter: HashSet<String>,
     pub gid_type_filter: HashSet<ibv::GidType>,
+    pub skip_inactive_port: bool,
     pub roce_v2_skip_link_local_addr: bool,
 }

@@ -40,7 +40,15 @@ impl Device {
                 );
                 continue;
             }
+            if device.ports().is_empty() {
+                tracing::debug!("skip device {} by no active port", device.name());
+                continue;
+            }
             devices.push(device);
+        }
+
+        if devices.is_empty() {
+            return Err(crate::Error::IBDeviceNotFound);
         }
 
         Ok(devices)
@@ -54,8 +62,12 @@ impl Device {
         let mut ports = vec![];
         for port_num in 1..=device_attr.phys_port_cnt {
             let port_attr = context.query_port(port_num)?;
-            let mut gids = vec![];
+            if port_attr.state != ibv::ibv_port_state::IBV_PORT_ACTIVE && config.skip_inactive_port
+            {
+                continue;
+            }
 
+            let mut gids = vec![];
             for gid_index in 0..port_attr.gid_tbl_len as u16 {
                 if let Ok(gid) = context.query_gid(port_num, gid_index) {
                     let gid_type = context.query_gid_type(port_num, gid_index)?;
@@ -125,6 +137,7 @@ mod tests {
         let config = DeviceConfig {
             device_filter: Default::default(),
             gid_type_filter: [ibv::GidType::IB, ibv::GidType::RoCEv2].into(),
+            skip_inactive_port: true,
             roce_v2_skip_link_local_addr: true,
         };
         let devices = Device::avaiables(&config).unwrap();

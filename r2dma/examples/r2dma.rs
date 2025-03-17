@@ -16,6 +16,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     pub skip_link_local_addr: bool,
 
+    /// enable port state filter.
+    #[arg(long, default_value_t = false)]
+    pub skip_inactive_port: bool,
+
     /// enable verbose logging.
     #[arg(long, short, default_value_t = false)]
     pub verbose: bool,
