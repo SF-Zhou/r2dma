@@ -16,6 +16,9 @@ impl Drop for MemoryRegion {
     }
 }
 
+unsafe impl Send for MemoryRegion {}
+unsafe impl Sync for MemoryRegion {}
+
 impl MemoryRegion {
     pub fn create(pd: &Arc<ProtectionDomain>, buf: &[u8]) -> Result<Self> {
         let ptr = unsafe {

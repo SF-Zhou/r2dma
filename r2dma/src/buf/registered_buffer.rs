@@ -1,5 +1,4 @@
-use super::*;
-use crate::{ibv::MemoryRegion, Error, Result};
+use crate::*;
 use std::alloc::Layout;
 
 pub const ALIGN_SIZE: usize = 4096;
@@ -45,17 +44,20 @@ impl std::ops::DerefMut for AlignedBuffer {
     }
 }
 
-pub struct Buffer {
+unsafe impl Send for AlignedBuffer {}
+unsafe impl Sync for AlignedBuffer {}
+
+pub struct RegisteredBuffer {
     aligned_buffer: AlignedBuffer,
-    memory_regions: Vec<MemoryRegion>,
+    memory_regions: Vec<ibv::MemoryRegion>,
 }
 
-impl Buffer {
+impl RegisteredBuffer {
     pub fn new(size: usize, devices: &Devices) -> Result<Self> {
         let aligned_buffer = AlignedBuffer::new(size)?;
         let mut memory_regions = vec![];
         for device in devices {
-            let memory_region = MemoryRegion::create(device.pd(), &aligned_buffer)?;
+            let memory_region = ibv::MemoryRegion::create(device.pd(), &aligned_buffer)?;
             memory_regions.push(memory_region);
         }
         Ok(Self {
@@ -73,7 +75,7 @@ impl Buffer {
     }
 }
 
-impl std::ops::Deref for Buffer {
+impl std::ops::Deref for RegisteredBuffer {
     type Target = [u8];
 
     #[inline(always)]
@@ -82,13 +84,13 @@ impl std::ops::Deref for Buffer {
     }
 }
 
-impl std::ops::DerefMut for Buffer {
+impl std::ops::DerefMut for RegisteredBuffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.aligned_buffer.deref_mut()
     }
 }
 
-impl std::fmt::Debug for Buffer {
+impl std::fmt::Debug for RegisteredBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let lkeys = self
             .memory_regions
@@ -116,7 +118,7 @@ mod tests {
     #[test]
     fn test_buffer() {
         let devices = Device::avaiables(&DeviceConfig::default()).unwrap();
-        let buffer = Buffer::new(1024, &devices).unwrap();
+        let buffer = RegisteredBuffer::new(1024, &devices).unwrap();
         assert_eq!(buffer.len(), ALIGN_SIZE);
         println!("{:#?}", buffer);
     }

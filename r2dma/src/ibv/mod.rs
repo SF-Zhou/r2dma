@@ -25,7 +25,7 @@ pub use memory_region::MemoryRegion;
 mod work_completion;
 
 mod queue_pair;
-pub use queue_pair::QueuePair;
+pub use queue_pair::{Endpoint, QueuePair};
 
 pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
     | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0

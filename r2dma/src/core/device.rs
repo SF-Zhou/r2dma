@@ -5,6 +5,8 @@ use std::{borrow::Cow, sync::Arc};
 /// Represents an RDMA device with its associated context, protection domain, port attributes, and GID.
 #[derive(Debug)]
 pub struct Device {
+    /// The index of the device.
+    index: usize,
     /// The context associated with the device.
     context: Arc<ibv::Context>,
     /// The attributes of the device,
@@ -30,8 +32,9 @@ impl Device {
     pub fn avaiables(config: &DeviceConfig) -> Result<Devices> {
         let mut devices = vec![];
 
+        let mut index = 0usize;
         for device in ibv::Device::availables()? {
-            let device = Device::open(&device, config)?;
+            let device = Device::open(index, &device, config)?;
             if !config.device_filter.is_empty()
                 && !config.device_filter.contains(device.name().as_ref())
             {
@@ -47,6 +50,7 @@ impl Device {
                 continue;
             }
             devices.push(device);
+            index += 1;
         }
 
         if devices.is_empty() {
@@ -56,7 +60,7 @@ impl Device {
         Ok(devices)
     }
 
-    pub fn open(device: &ibv::Device, config: &DeviceConfig) -> Result<Self> {
+    pub fn open(index: usize, device: &ibv::Device, config: &DeviceConfig) -> Result<Self> {
         let context = ibv::Context::create(device)?;
         let pd = ibv::ProtectionDomain::create(&context)?;
         let device_attr = context.query_device()?;
@@ -98,6 +102,7 @@ impl Device {
         }
 
         Ok(Self {
+            index,
             context,
             device_attr,
             ports,
@@ -105,11 +110,15 @@ impl Device {
         })
     }
 
+    pub fn index(&self) -> usize {
+        self.index
+    }
+
     pub fn pd(&self) -> &Arc<ibv::ProtectionDomain> {
         &self.pd
     }
 
-    pub fn context(&self) -> &ibv::Context {
+    pub fn context(&self) -> &Arc<ibv::Context> {
         &self.context
     }
 
