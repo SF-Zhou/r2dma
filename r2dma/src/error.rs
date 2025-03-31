@@ -1,5 +1,7 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("alloc memory failed")]
+    AllocMemoryFailed,
     #[error("ib get deivce list fail: {0}")]
     IBGetDeviceListFail(#[source] std::io::Error),
     #[error("ib device is not found")]
