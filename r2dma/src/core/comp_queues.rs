@@ -56,10 +56,14 @@ impl CompQueues {
         self.comp_queues[device_index].0
     }
 
+    pub fn num_entries(&self) -> usize {
+        self.comp_queues.len() * self.cqe
+    }
+
     pub fn poll_cq<'a>(&self, wcs: &'a mut [verbs::ibv_wc]) -> Result<&'a mut [verbs::ibv_wc]> {
         assert!(wcs.len() >= self.comp_queues.len());
         let mut offset = 0usize;
-        let num_entries = (wcs.len() / 4) as _;
+        let num_entries = (wcs.len() / self.comp_queues.len()) as i32;
         for comp_queue in &self.comp_queues {
             let num = unsafe {
                 verbs::ibv_poll_cq(comp_queue.0, num_entries, wcs.as_mut_ptr().add(offset) as _)

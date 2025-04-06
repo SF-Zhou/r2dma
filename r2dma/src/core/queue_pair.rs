@@ -216,7 +216,10 @@ mod tests {
 
     #[test]
     fn test_queue_pair_send_recv() {
+        // 1. list all available devices.
         let devices = Devices::availables().unwrap();
+
+        // 2. create two queue pairs.
         let cap = verbs::ibv_qp_cap {
             max_send_wr: 64,
             max_recv_wr: 64,
@@ -230,9 +233,11 @@ mod tests {
         let comp_queues_b = CompQueues::create(&devices, 128).unwrap();
         let mut queue_pair_b = QueuePair::create(&devices, 0, &comp_queues_b, cap).unwrap();
 
+        // 3. init all queue pairs.
         queue_pair_a.init(1, 0).unwrap();
         queue_pair_b.init(1, 0).unwrap();
 
+        // 4. post recv wr.
         const LEN: usize = 1 << 20;
         let buffer_pool = BufferPool::create(LEN, 32, &devices).unwrap();
 
@@ -251,6 +256,7 @@ mod tests {
         };
         assert_eq!(queue_pair_b.post_recv(&mut recv_wr), 0);
 
+        // 5. connect two queue pairs.
         let device = &devices[0];
         let gid = device.info().ports[0].gids[1].1;
         queue_pair_a
@@ -274,6 +280,7 @@ mod tests {
         let mut wcs_b = vec![verbs::ibv_wc::default(); 128];
         assert!(comp_queues_b.poll_cq(&mut wcs_b).unwrap().is_empty());
 
+        // 6. post send wr.
         let mut send_buf = buffer_pool.allocate().unwrap();
         send_buf.fill(1);
         let mut send_sge = verbs::ibv_sge {
@@ -291,6 +298,7 @@ mod tests {
         };
         assert_eq!(queue_pair_a.post_send(&mut send_wr), 0);
 
+        // 7. poll cq.
         std::thread::sleep(std::time::Duration::from_millis(100));
         let mut wcs_a = vec![verbs::ibv_wc::default(); 128];
         let comp_a = comp_queues_a.poll_cq(&mut wcs_a).unwrap();

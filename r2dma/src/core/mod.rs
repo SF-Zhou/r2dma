@@ -9,3 +9,6 @@ pub use comp_queues::CompQueues;
 
 mod queue_pair;
 pub use queue_pair::{Endpoint, QueuePair};
+
+mod event_loop;
+pub use event_loop::EventLoop;
