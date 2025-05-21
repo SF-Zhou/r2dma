@@ -12,3 +12,6 @@ pub use queue_pair::{Endpoint, QueuePair};
 
 mod event_loop;
 pub use event_loop::EventLoop;
+
+mod socket;
+pub use socket::Socket;
