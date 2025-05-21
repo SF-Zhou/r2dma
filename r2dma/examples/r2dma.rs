@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2dma::{ibv::GidType, DeviceConfig, Result};
+use r2dma::{Result, *};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -15,6 +15,10 @@ struct Args {
     /// RoCE v2 skip link local address.
     #[arg(long, default_value_t = false)]
     pub skip_link_local_addr: bool,
+
+    /// enable port state filter.
+    #[arg(long, default_value_t = false)]
+    pub skip_inactive_port: bool,
 
     /// enable verbose logging.
     #[arg(long, short, default_value_t = false)]
@@ -41,29 +45,9 @@ fn main() -> Result<()> {
         config.roce_v2_skip_link_local_addr = true;
     }
 
-    let devices = r2dma::Device::avaiables(&config)?;
-    for device in devices {
-        println!("device: {:#?}", device.context().device());
-
-        for port in device.ports() {
-            println!("port {}: {:#?}", port.port_num, port.port_attr);
-            for (gid_index, gid, gid_type) in &port.gids {
-                match gid_type {
-                    GidType::IB => {
-                        println!("{gid_index}: {:?}, InfiniBand", gid);
-                    }
-                    GidType::RoCEv1 => {
-                        println!("{gid_index}: {:?}, RoCE v1", gid);
-                    }
-                    GidType::RoCEv2 => {
-                        println!("{gid_index}: {}, RoCE v2", gid.as_ipv6())
-                    }
-                    GidType::Other(t) => {
-                        println!("{gid_index}: {:?}, {}", gid, t)
-                    }
-                }
-            }
-        }
+    let devices = Devices::open(&config)?;
+    for device in &devices {
+        println!("device: {:#?}", device.info());
     }
 
     Ok(())

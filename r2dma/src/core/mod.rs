@@ -1,5 +1,14 @@
 mod config;
-pub use config::{Config, DeviceConfig};
+pub use config::{Config, DeviceConfig, GidType};
 
-mod device;
-pub use device::Device;
+mod devices;
+pub use devices::{Device, Devices};
+
+mod comp_queues;
+pub use comp_queues::CompQueues;
+
+mod queue_pair;
+pub use queue_pair::{Endpoint, QueuePair};
+
+mod event_loop;
+pub use event_loop::EventLoop;

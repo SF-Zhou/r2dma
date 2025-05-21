@@ -1,5 +1,12 @@
-use crate::ibv;
 use std::collections::HashSet;
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum GidType {
+    IB,
+    RoCEv1,
+    RoCEv2,
+    Other(String),
+}
 
 #[derive(Debug, Default)]
 pub struct Config {
@@ -9,6 +16,7 @@ pub struct Config {
 #[derive(Debug, Default)]
 pub struct DeviceConfig {
     pub device_filter: HashSet<String>,
-    pub gid_type_filter: HashSet<ibv::GidType>,
+    pub gid_type_filter: HashSet<GidType>,
+    pub skip_inactive_port: bool,
     pub roce_v2_skip_link_local_addr: bool,
 }
