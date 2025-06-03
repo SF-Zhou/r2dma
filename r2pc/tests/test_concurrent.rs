@@ -1,6 +1,6 @@
 #![feature(return_type_notation)]
-use derse::{Deserialize, Serialize};
 use r2pc::{Client, ConnectionPool, Context, Result, Server, Transport};
+use serde::{Deserialize, Serialize};
 use std::{
     str::FromStr,
     sync::{

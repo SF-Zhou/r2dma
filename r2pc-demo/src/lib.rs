@@ -1,6 +1,6 @@
 #![feature(return_type_notation)]
-use derse::{Deserialize, Serialize};
 use r2pc::{Context, Result};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Request(pub String);

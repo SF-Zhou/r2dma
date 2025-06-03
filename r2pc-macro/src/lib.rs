@@ -104,7 +104,7 @@ pub fn service(_attr: TokenStream, input: TokenStream) -> TokenStream {
 
 pub(crate) fn get_crate_name() -> proc_macro2::TokenStream {
     let found_crate = proc_macro_crate::crate_name("r2pc").unwrap_or_else(|err| {
-        eprintln!("Warning: {}\n    => defaulting to `crate`", err,);
+        eprintln!("Warning: {err}\n    => defaulting to `crate`",);
         proc_macro_crate::FoundCrate::Itself
     });
 

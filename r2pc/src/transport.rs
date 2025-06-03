@@ -38,12 +38,12 @@ impl Transport {
                     .map_err(|e| Error::SocketError(e.to_string()))?;
 
                 if (header >> 32) as u32 != MSG_HEADER {
-                    return Err(Error::InvalidMsg(format!("invalid header: {:08X}", header)));
+                    return Err(Error::InvalidMsg(format!("invalid header: {header:08X}")));
                 }
 
                 let len = header as u32 as usize;
                 if len >= MAX_MSG_SIZE {
-                    return Err(Error::InvalidMsg(format!("msg is too long: {}", len)));
+                    return Err(Error::InvalidMsg(format!("msg is too long: {len}")));
                 }
 
                 let mut bytes = vec![0u8; len];
@@ -87,12 +87,12 @@ impl Transport {
                     .map_err(|e| Error::SocketError(e.to_string()))?;
 
                 if (header >> 32) as u32 != MSG_HEADER {
-                    return Err(Error::InvalidMsg(format!("invalid header: {:08X}", header)));
+                    return Err(Error::InvalidMsg(format!("invalid header: {header:08X}")));
                 }
 
                 let len = header as u32 as usize;
                 if len >= MAX_MSG_SIZE {
-                    return Err(Error::InvalidMsg(format!("msg is too long: {}", len)));
+                    return Err(Error::InvalidMsg(format!("msg is too long: {len}")));
                 }
 
                 let mut bytes = vec![0u8; len];

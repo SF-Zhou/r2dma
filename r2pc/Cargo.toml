@@ -11,7 +11,9 @@ license.workspace = true
 [dependencies]
 r2pc-macro = { version = "0.1.0", path = "../r2pc-macro" }
 
-derse.workspace = true
+serde.workspace = true
+rmp-serde.workspace = true
+rmpv.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 tokio = { version = "1", features = ["full"] }

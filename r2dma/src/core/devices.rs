@@ -91,7 +91,7 @@ impl RawContext {
         ibdev_path: &Path,
         port_attr: &verbs::ibv_port_attr,
     ) -> Result<GidType> {
-        let path = ibdev_path.join(format!("ports/{}/gid_attrs/types/{}", port_num, gid_index));
+        let path = ibdev_path.join(format!("ports/{port_num}/gid_attrs/types/{gid_index}"));
         match std::fs::read_to_string(path) {
             Ok(content) => {
                 if content == "IB/RoCE v1\n" {

@@ -12,7 +12,7 @@ fn main() {
     include_paths.insert(PathBuf::from("/usr/include"));
 
     let builder = bindgen::Builder::default()
-        .clang_args(include_paths.iter().map(|p| format!("-I{:?}", p)))
+        .clang_args(include_paths.iter().map(|p| format!("-I{p:?}")))
         .header_contents("header.h", "#include <infiniband/verbs.h>")
         .derive_copy(true)
         .derive_debug(true)

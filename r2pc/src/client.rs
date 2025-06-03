@@ -1,5 +1,5 @@
-use crate::{Context, Meta};
-use derse::{Deserialize, Serialize};
+use crate::{Context, DeserializePackage, Meta};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 pub struct Client {
@@ -36,8 +36,9 @@ impl Client {
             Ok(r) => r?,
             Err(e) => return Err(crate::Error::Timeout(e.to_string()).into()),
         };
-        let mut buf = bytes.as_slice();
-        let _ = Meta::deserialize_from(&mut buf).map_err(Into::into)?;
-        std::result::Result::<Rsp, Error>::deserialize_from(&mut buf).map_err(Into::into)?
+        let buf = bytes.as_slice();
+        let package: DeserializePackage<std::result::Result<Rsp, Error>> =
+            rmp_serde::from_slice(buf).map_err(crate::Error::from)?;
+        package.payload
     }
 }

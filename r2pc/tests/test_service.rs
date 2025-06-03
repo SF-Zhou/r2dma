@@ -1,6 +1,6 @@
 #![feature(return_type_notation)]
-use derse::{Deserialize, Serialize};
 use r2pc::{Client, ConnectionPool, Context, Error, Server, Transport};
+use serde::{Deserialize, Serialize};
 use std::{str::FromStr, sync::Arc};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ pub struct BarRsp {
     pub data: u64,
 }
 
-#[derive(thiserror::Error, derse::Serialize, derse::Deserialize)]
+#[derive(thiserror::Error, Serialize, Deserialize)]
 #[error("bar error: {0}")]
 struct DemoError(pub String);
 
