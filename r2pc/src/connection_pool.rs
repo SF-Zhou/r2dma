@@ -17,10 +17,10 @@ impl ConnectionPool {
 
     pub async fn acquire(&self, addr: SocketAddr) -> Result<TcpStream> {
         let mut entry = self.map.entry(addr);
-        if let Some(conns) = entry.get_mut() {
-            if let Some(conn) = conns.pop() {
-                return Ok(conn);
-            }
+        if let Some(conns) = entry.get_mut()
+            && let Some(conn) = conns.pop()
+        {
+            return Ok(conn);
         }
         drop(entry);
 

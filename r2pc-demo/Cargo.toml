@@ -12,7 +12,7 @@ license.workspace = true
 r2pc = { path = "../r2pc" }
 
 clap = { version = "4", features = ["derive"] }
-derse = "0"
+serde.workspace = true
 tokio = { version = "1", features = ["full"] }
 tracing.workspace = true
 tracing-subscriber = "0"

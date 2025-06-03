@@ -5,6 +5,8 @@
 
 use std::{net::Ipv6Addr, os::raw::c_int};
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 #[repr(transparent)]
 pub struct pthread_mutex_t(pub libc::pthread_mutex_t);
 
@@ -93,25 +95,28 @@ impl std::fmt::Debug for ibv_gid {
             .as_raw()
             .chunks_exact(2)
             .map(|b| format!("{:02x}{:02x}", b[0], b[1]))
-            .reduce(|a, b| format!("{}:{}", a, b))
+            .reduce(|a, b| format!("{a}:{b}"))
             .unwrap();
         f.write_str(&gid)
     }
 }
 
-impl derse::Serialize for ibv_gid {
-    fn serialize_to<S: derse::Serializer>(&self, serializer: &mut S) -> derse::Result<()> {
-        self.as_raw().serialize_to(serializer)
+impl Serialize for ibv_gid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_bytes(self.as_raw())
     }
 }
 
-impl<'a> derse::Deserialize<'a> for ibv_gid {
-    fn deserialize_from<S: derse::Deserializer<'a>>(buf: &mut S) -> derse::Result<Self>
+impl<'de> Deserialize<'de> for ibv_gid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        Self: Sized,
+        D: Deserializer<'de>,
     {
         let mut gid = ibv_gid::default();
-        gid.raw = <[u8; 16]>::deserialize_from(buf)?;
+        gid.raw = <[u8; 16]>::deserialize(deserializer)?;
         Ok(gid)
     }
 }

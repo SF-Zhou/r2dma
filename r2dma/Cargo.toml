@@ -9,8 +9,8 @@ description.workspace = true
 license.workspace = true
 
 [dependencies]
-derse.workspace = true
 libc.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

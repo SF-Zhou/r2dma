@@ -1,9 +1,8 @@
 use super::*;
-use derse::Deserialize;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::net::TcpStream;
 
-pub type Method = Box<dyn Fn(&Context, Meta, &[u8]) -> Result<()> + Send + Sync>;
+pub type Method = Box<dyn Fn(&Context, Meta, rmpv::Value) -> Result<()> + Send + Sync>;
 
 pub struct Server {
     stop_token: tokio_util::sync::CancellationToken,
@@ -71,15 +70,15 @@ impl Server {
 
         loop {
             let bytes = recv_tr.recv().await?;
-
-            let mut buf = bytes.as_slice();
-            let meta = Meta::deserialize_from(&mut buf)?;
+            let buf = bytes.as_slice();
+            let package: DeserializePackage<rmpv::Value> = rmp_serde::from_slice(buf)?;
+            let DeserializePackage { meta, payload } = package;
             if let Some(func) = self.methods.get(&meta.method) {
                 let ctx = Context {
                     tr: send_tr.clone(),
                     server: Some(self.clone()),
                 };
-                let _ = func(&ctx, meta, buf);
+                let _ = func(&ctx, meta, payload);
             }
         }
     }

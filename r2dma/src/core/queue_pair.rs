@@ -1,6 +1,6 @@
 use super::*;
 use crate::{verbs, Error, Result};
-use derse::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::{ffi::c_int, ops::Deref, sync::Arc};
 
 #[derive(Debug, Deserialize, Serialize)]
