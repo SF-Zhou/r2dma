@@ -121,6 +121,13 @@ impl<'de> Deserialize<'de> for ibv_gid {
     }
 }
 
+impl ibv_wc {
+    pub fn is_recv(&self) -> bool {
+        self.opcode == ibv_wc_opcode::IBV_WC_RECV
+            || self.opcode == ibv_wc_opcode::IBV_WC_RECV_RDMA_WITH_IMM
+    }
+}
+
 pub const ACCESS_FLAGS: u32 = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE.0
     | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE.0
     | ibv_access_flags::IBV_ACCESS_REMOTE_READ.0

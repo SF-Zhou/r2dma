@@ -11,8 +11,9 @@ license.workspace = true
 [dependencies]
 r2pc = { path = "../r2pc" }
 
-clap = { version = "4", features = ["derive"] }
+clap.workspace = true
 serde.workspace = true
-tokio = { version = "1", features = ["full"] }
+tikv-jemallocator.workspace = true
+tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber = "0"
+tracing-subscriber.workspace = true

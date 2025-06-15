@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2pc::{Context, Result, Server};
+use r2pc::{Context, Result, Server, Services};
 use r2pc_demo::{EchoService, GreetService, Request};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -33,6 +33,9 @@ impl GreetService for DemoImpl {
     }
 }
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -40,14 +43,15 @@ async fn main() {
         .init();
 
     let args = Args::parse();
-    let mut server = Server::default();
 
     let demo = Arc::new(DemoImpl::default());
-    server.add_methods(EchoService::rpc_export(demo.clone()));
-    server.add_methods(GreetService::rpc_export(demo.clone()));
+    let mut services = Services::default();
+    services.add_methods(EchoService::rpc_export(demo.clone()));
+    services.add_methods(GreetService::rpc_export(demo.clone()));
+    let server = Server::create(services);
 
     let server = Arc::new(server);
-    let (addr, listen_handle) = server.clone().listen(args.addr).await.unwrap();
+    let (addr, listen_handle) = server.listen(args.addr).await.unwrap();
     tracing::info!(
         "Serving {:?} on {}...",
         [

@@ -1,9 +1,9 @@
-use crate::{Context, DeserializePackage, Meta};
+use super::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 pub struct Client {
-    timeout: Duration,
+    pub timeout: Duration,
 }
 
 impl Default for Client {
@@ -15,30 +15,36 @@ impl Default for Client {
 }
 
 impl Client {
-    pub async fn rpc_call<Req, Rsp, Error>(
+    pub async fn rpc_call<Req, Rsp, E>(
         &self,
         ctx: &Context,
         req: &Req,
         method_name: &str,
-    ) -> std::result::Result<Rsp, Error>
+    ) -> std::result::Result<Rsp, E>
     where
         Req: Serialize,
         Rsp: for<'c> Deserialize<'c>,
-        Error: std::error::Error + From<crate::Error> + for<'c> Deserialize<'c>,
+        E: std::error::Error + From<crate::Error> + for<'c> Deserialize<'c>,
     {
-        let meta = Meta {
-            msg_id: Default::default(),
+        let socket = ctx.get_socket().await?;
+
+        let (msg_id, rx) = ctx.core_state.msg_waiter.alloc();
+        let meta = MsgMeta {
+            msg_id,
+            flags: MsgFlags::IsReq,
             method: method_name.into(),
-            flags: Default::default(),
         };
-        let bytes = meta.serialize(req)?;
-        let bytes = match tokio::time::timeout(self.timeout, ctx.tr.request(&bytes)).await {
-            Ok(r) => r?,
-            Err(e) => return Err(crate::Error::Timeout(e.to_string()).into()),
-        };
-        let buf = bytes.as_slice();
-        let package: DeserializePackage<std::result::Result<Rsp, Error>> =
-            rmp_serde::from_slice(buf).map_err(crate::Error::from)?;
-        package.payload
+        let msg = Msg::serialize(meta, req)?;
+        socket.send(msg).await?;
+
+        match tokio::time::timeout(self.timeout, rx).await {
+            Ok(r) => r
+                .map_err(|e| Error::new(ErrorKind::WaitMsgFailed, e.to_string()))?
+                .and_then(|msg| msg.deserialize_payload())?,
+            Err(e) => {
+                ctx.core_state.msg_waiter.timeout(msg_id);
+                Err(Error::new(ErrorKind::Timeout, e.to_string()).into())
+            }
+        }
     }
 }

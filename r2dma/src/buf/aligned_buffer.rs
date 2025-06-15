@@ -1,8 +1,9 @@
-use crate::{Error, Result};
+use crate::{ErrorKind, Result};
 use std::alloc::Layout;
 
 pub const ALIGN_SIZE: usize = 4096;
 
+/// A buffer that is aligned to a specific size, typically used for RDMA operations.
 pub struct AlignedBuffer(&'static mut [u8]);
 
 impl AlignedBuffer {
@@ -13,7 +14,7 @@ impl AlignedBuffer {
             let layout = Layout::from_size_align_unchecked(size, ALIGN_SIZE);
             let ptr = std::alloc::alloc(layout);
             if ptr.is_null() {
-                Err(Error::AllocMemoryFailed)
+                Err(ErrorKind::AllocMemoryFailed.into())
             } else {
                 Ok(Self(std::slice::from_raw_parts_mut(ptr, size)))
             }

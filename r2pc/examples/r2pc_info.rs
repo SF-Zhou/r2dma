@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2pc::{Client, ConnectionPool, Context, InfoService, Result, Transport};
+use r2pc::*;
 use std::sync::Arc;
 
 #[derive(Parser, Debug, Clone)]
@@ -18,9 +18,13 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let pool = Arc::new(ConnectionPool::new(4));
-    let tr = Transport::new_sync(pool, args.addr);
-    let ctx = Context::new(tr);
+    let core_state = Arc::new(CoreState::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let ctx = Context {
+        socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
+        core_state,
+    };
+
     let client = Client::default();
     let rsp = client.list_methods(&ctx, &()).await?;
     if !rsp.is_empty() {

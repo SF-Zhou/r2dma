@@ -1,5 +1,5 @@
 #![feature(return_type_notation)]
-use r2pc::{Client, ConnectionPool, Context, Error, Server, Transport};
+use r2pc::*;
 use serde::{Deserialize, Serialize};
 use std::{str::FromStr, sync::Arc};
 
@@ -23,9 +23,16 @@ pub struct BarRsp {
     pub data: u64,
 }
 
-#[derive(thiserror::Error, Serialize, Deserialize)]
-#[error("bar error: {0}")]
+#[derive(Serialize, Deserialize)]
 struct DemoError(pub String);
+
+impl std::error::Error for DemoError {}
+
+impl std::fmt::Display for DemoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "demo error: {}", self.0)
+    }
+}
 
 impl std::fmt::Debug for DemoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -74,20 +81,20 @@ impl DemoService for DemoImpl {
 
 #[tokio::test]
 async fn test_demo_service() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
-        .init();
-
     let demo = Arc::new(DemoImpl);
-    let mut server = Server::default();
-    server.add_methods(demo.rpc_export());
+    let mut services = Services::default();
+    services.add_methods(demo.clone().rpc_export());
+    let server = Server::create(services);
     let server = Arc::new(server);
     let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
-
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
-    let pool = Arc::new(ConnectionPool::new(16));
-    let tr = Transport::new_sync(pool, addr);
-    let ctx = Context::new(tr);
+
+    let core_state = Arc::new(CoreState::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let ctx = Context {
+        socket_getter: SocketGetter::FromPool(socket_pool, addr),
+        core_state,
+    };
 
     let client = Client::default();
     let req = FooReq { data: "foo".into() };
@@ -116,8 +123,9 @@ async fn test_demo_service() {
 #[test]
 fn test_demo_service_sync() {
     let demo = Arc::new(DemoImpl);
-    let mut server = Server::default();
-    server.add_methods(demo.rpc_export());
+    let mut services = Services::default();
+    services.add_methods(demo.clone().rpc_export());
+    let server = Server::create(services);
     let server = Arc::new(server);
     let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
 
@@ -128,9 +136,12 @@ fn test_demo_service_sync() {
         .unwrap();
     let (addr, listen_handle) = runtime.block_on(server.clone().listen(addr)).unwrap();
 
-    let pool = Arc::new(ConnectionPool::new(16));
-    let tr = Transport::new_sync(pool, addr);
-    let ctx = Context::new(tr);
+    let core_state = Arc::new(CoreState::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let ctx = Context {
+        socket_getter: SocketGetter::FromPool(socket_pool, addr),
+        core_state,
+    };
 
     let req = FooReq { data: "foo".into() };
     let current = tokio::runtime::Builder::new_current_thread()

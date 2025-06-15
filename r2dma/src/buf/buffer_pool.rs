@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// A pool of buffers that can be allocated and deallocated.
+/// This pool is designed to manage a fixed-size buffer that can be divided into smaller blocks.
 pub struct BufferPool {
     buffer: RegisteredBuffer,
     block_size: usize,
@@ -66,7 +68,7 @@ impl BufferPool {
                 pool: self.clone(),
                 idx,
             }),
-            None => Err(Error::AllocMemoryFailed),
+            None => Err(ErrorKind::AllocMemoryFailed.into()),
         }
     }
 

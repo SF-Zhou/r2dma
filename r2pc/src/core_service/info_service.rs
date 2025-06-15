@@ -7,7 +7,6 @@ pub trait InfoService {
 
 impl InfoService for super::CoreServiceImpl {
     async fn list_methods(&self, ctx: &Context, _: &()) -> Result<Vec<String>> {
-        let server = ctx.server.as_ref().unwrap();
-        Ok(server.methods.keys().cloned().collect())
+        Ok(ctx.core_state.services.method_names().cloned().collect())
     }
 }

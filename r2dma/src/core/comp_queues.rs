@@ -1,5 +1,5 @@
 use super::Devices;
-use crate::{verbs, Error, Result};
+use crate::{verbs, ErrorKind, Result};
 use std::sync::Arc;
 
 struct RawCompQueue(*mut verbs::ibv_cq);
@@ -18,6 +18,7 @@ impl Drop for RawCompQueue {
 unsafe impl Send for RawCompQueue {}
 unsafe impl Sync for RawCompQueue {}
 
+/// Represents a collection of completion queues for RDMA devices.
 pub struct CompQueues {
     comp_queues: Vec<RawCompQueue>,
     pub cqe: usize,
@@ -38,7 +39,7 @@ impl CompQueues {
                 )
             };
             if ptr.is_null() {
-                return Err(Error::IBCreateCompQueueFail(std::io::Error::last_os_error()));
+                return Err(ErrorKind::IBCreateCompQueueFail.with_errno());
             }
             comp_queues.push(RawCompQueue(ptr));
         }

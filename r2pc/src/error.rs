@@ -1,31 +1,63 @@
-#[derive(thiserror::Error, serde::Serialize, serde::Deserialize)]
-pub enum Error {
-    #[error("serde error: {0}")]
-    SerdeError(String),
-    #[error("socket error: {0}")]
-    SocketError(String),
-    #[error("timeout: {0}")]
-    Timeout(String),
-    #[error("invalid msg: {0}")]
-    InvalidMsg(String),
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ErrorKind {
+    Timeout,
+    SerializeFailed,
+    DeserializeFailed,
+    TcpConnectFailed,
+    TcpAddSocketFailed,
+    TcpSendMsgFailed,
+    TcpParseMsgFailed,
+    TcpSendFailed,
+    TcpRecvFailed,
+    WaitMsgFailed,
+    #[cfg(feature = "rdma")]
+    RdmaError(r2dma::ErrorKind),
+    #[serde(untagged)]
+    Unknown(String),
 }
 
-impl std::fmt::Debug for Error {
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Error {
+    pub kind: ErrorKind,
+    pub msg: Option<String>,
+}
+
+impl Error {
+    pub fn new(kind: ErrorKind, msg: String) -> Self {
+        Self {
+            kind,
+            msg: Some(msg),
+        }
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self { kind, msg: None }
+    }
+}
+
+#[cfg(feature = "rdma")]
+impl From<r2dma::Error> for Error {
+    fn from(e: r2dma::Error) -> Self {
+        Self {
+            kind: ErrorKind::RdmaError(e.kind),
+            msg: e.msg,
+        }
+    }
+}
+
+impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(self, f)
+        match &self.msg {
+            Some(msg) => write!(f, "{:?}: {}", self.kind, msg),
+            None => write!(f, "{:?}", self.kind),
+        }
     }
 }
 
-impl From<rmp_serde::decode::Error> for Error {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Error::SerdeError(value.to_string())
-    }
-}
-
-impl From<rmpv::ext::Error> for Error {
-    fn from(value: rmpv::ext::Error) -> Self {
-        Error::SerdeError(value.to_string())
-    }
-}
+impl std::error::Error for Error {}
 
 pub type Result<T> = std::result::Result<T, Error>;
