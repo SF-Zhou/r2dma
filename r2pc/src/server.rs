@@ -1,30 +1,20 @@
 use super::*;
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
-use tokio::net::TcpStream;
-
-pub type Method = Box<dyn Fn(&Context, Meta, rmpv::Value) -> Result<()> + Send + Sync>;
+use std::{net::SocketAddr, sync::Arc};
 
 pub struct Server {
     stop_token: tokio_util::sync::CancellationToken,
-    pub methods: HashMap<String, Method>,
-}
-
-impl Default for Server {
-    fn default() -> Self {
-        let mut this = Self {
-            stop_token: Default::default(),
-            methods: Default::default(),
-        };
-
-        let core_service = Arc::new(CoreServiceImpl);
-        this.add_methods(InfoService::rpc_export(core_service.clone()));
-        this
-    }
+    socket_pool: Arc<TcpSocketPool>,
 }
 
 impl Server {
-    pub fn add_methods(&mut self, methods: HashMap<String, Method>) {
-        self.methods.extend(methods);
+    pub fn create(services: Services) -> Self {
+        let core_state = CoreState::new(services);
+        let socket_pool = Arc::new(TcpSocketPool::create(core_state));
+
+        Self {
+            stop_token: tokio_util::sync::CancellationToken::new(),
+            socket_pool,
+        }
     }
 
     pub fn stop(&self) {
@@ -45,15 +35,12 @@ impl Server {
                     tracing::info!("stop accept loop");
                 }
                 _ = async {
-                    while let Ok((socket, addr)) = listener.accept().await {
-                        let clone = self.clone();
-                        tokio::spawn(async move {
-                            tracing::info!("socket {addr} established");
-                            match clone.handle(socket).await {
-                                Ok(_) => tracing::info!("socket {addr} closed"),
-                                Err(err) => tracing::info!("socket {addr} closed with error {err}"),
-                            }
-                        });
+                    while let Ok((stream, addr)) = listener.accept().await {
+                        if let Err(e) = self.socket_pool.add_socket(addr, stream) {
+                            tracing::error!("failed to add socket {addr}: {e}");
+                        } else {
+                            tracing::info!("accepted connection from {addr}");
+                        }
                     }
                 } => {}
             }
@@ -61,31 +48,31 @@ impl Server {
 
         Ok((listener_addr, listen_routine))
     }
-
-    pub async fn handle(self: Arc<Self>, socket: TcpStream) -> Result<()> {
-        let recv_stream = socket.into_std().unwrap();
-        let send_stream = recv_stream.try_clone().unwrap();
-        let recv_tr = Transport::new_async(TcpStream::from_std(recv_stream).unwrap());
-        let send_tr = Transport::new_async(TcpStream::from_std(send_stream).unwrap());
-
-        loop {
-            let bytes = recv_tr.recv().await?;
-            let buf = bytes.as_slice();
-            let package: DeserializePackage<rmpv::Value> = rmp_serde::from_slice(buf)?;
-            let DeserializePackage { meta, payload } = package;
-            if let Some(func) = self.methods.get(&meta.method) {
-                let ctx = Context {
-                    tr: send_tr.clone(),
-                    server: Some(self.clone()),
-                };
-                let _ = func(&ctx, meta, payload);
-            }
-        }
-    }
 }
 
 impl std::fmt::Debug for Server {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Server").finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[tokio::test]
+    async fn test_server_creation() {
+        let mut services = Services::default();
+        services.add_methods(Arc::new(CoreServiceImpl).rpc_export());
+        let server = Server::create(services);
+        let server = Arc::new(server);
+
+        let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
+        let (_addr, listen_handle) = server.clone().listen(addr).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        server.stop();
+        let _ = listen_handle.await;
     }
 }

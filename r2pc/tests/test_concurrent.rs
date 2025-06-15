@@ -1,5 +1,5 @@
 #![feature(return_type_notation)]
-use r2pc::{Client, ConnectionPool, Context, Result, Server, Transport};
+use r2pc::*;
 use serde::{Deserialize, Serialize};
 use std::{
     str::FromStr,
@@ -34,16 +34,24 @@ impl DemoService for DemoImpl {
 
 #[tokio::test]
 async fn test_concurrent_call() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
     let demo = Arc::new(DemoImpl::default());
-    let mut server = Server::default();
-    server.add_methods(demo.clone().rpc_export());
+    let mut services = Services::default();
+    services.add_methods(demo.clone().rpc_export());
+    let server = Server::create(services);
     let server = Arc::new(server);
     let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
-
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
-    let pool = Arc::new(ConnectionPool::new(64));
-    let tr = Transport::new_sync(pool, addr);
-    let ctx = Context::new(tr);
+
+    let core_state = Arc::new(CoreState::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let ctx = Context {
+        socket_getter: SocketGetter::FromPool(socket_pool, addr),
+        core_state,
+    };
 
     const N: usize = 32;
     const M: usize = 4096;

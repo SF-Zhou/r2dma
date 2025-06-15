@@ -57,14 +57,12 @@ pub fn service(_attr: TokenStream, input: TokenStream) -> TokenStream {
                 let this = self.clone();
                 map.insert(
                     #method_name.into(),
-                    Box::new(move |ctx, meta, bytes| {
-                        let req = meta.deserialize(bytes)?;
+                    Box::new(move |ctx, mut msg| {
                         let this = this.clone();
-                        let ctx = ctx.clone();
                         tokio::spawn(async move {
-                            let result = this.#method_ident(&ctx, &req).await;
-                            if let Ok(bytes) = meta.serialize(&result) {
-                                let _ = ctx.tr.send(&bytes).await;
+                            if let Ok(req) = msg.deserialize_payload() {
+                                let result = this.#method_ident(&ctx, &req).await;
+                                ctx.send_rsp(msg.meta, result).await;
                             }
                         });
                         Ok(())

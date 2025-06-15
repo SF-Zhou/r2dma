@@ -16,6 +16,7 @@ impl Drop for RawMemoryRegion {
 unsafe impl Send for RawMemoryRegion {}
 unsafe impl Sync for RawMemoryRegion {}
 
+/// A registered buffer that can be used for RDMA operations.
 pub struct RegisteredBuffer {
     memory_regions: Vec<RawMemoryRegion>,
     aligned_buffer: AlignedBuffer,

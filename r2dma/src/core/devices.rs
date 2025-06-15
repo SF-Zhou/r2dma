@@ -1,5 +1,5 @@
 use super::{DeviceConfig, GidType};
-use crate::{verbs, Error, Result};
+use crate::{verbs, Error, ErrorKind, Result};
 use std::{
     ffi::{c_int, CStr, OsStr},
     ops::Deref,
@@ -18,10 +18,10 @@ impl RawDeviceList {
         let mut num_devices: c_int = 0;
         let ptr = unsafe { verbs::ibv_get_device_list(&mut num_devices) };
         if ptr.is_null() {
-            return Err(Error::IBGetDeviceListFail(std::io::Error::last_os_error()));
+            return Err(ErrorKind::IBGetDeviceListFail.with_errno());
         }
         if num_devices == 0 {
-            return Err(Error::IBDeviceNotFound);
+            return Err(ErrorKind::IBDeviceNotFound.into());
         }
         Ok(Self {
             ptr,
@@ -58,7 +58,7 @@ impl RawContext {
         let mut device_attr = verbs::ibv_device_attr::default();
         let ret = unsafe { verbs::ibv_query_device(self.0, &mut device_attr) };
         if ret != 0 {
-            Err(Error::IBQueryDeviceFail(std::io::Error::last_os_error()))
+            Err(ErrorKind::IBQueryDeviceFail.with_errno())
         } else {
             Ok(device_attr)
         }
@@ -70,7 +70,7 @@ impl RawContext {
         if ret == 0 {
             Ok(unsafe { port_attr.assume_init() })
         } else {
-            Err(Error::IBQueryPortFail(std::io::Error::last_os_error()))
+            Err(ErrorKind::IBQueryPortFail.with_errno())
         }
     }
 
@@ -80,7 +80,7 @@ impl RawContext {
         if ret == 0 && !gid.is_null() {
             Ok(gid)
         } else {
-            Err(Error::IBQueryGidFail(std::io::Error::last_os_error()))
+            Err(ErrorKind::IBQueryGidFail.with_errno())
         }
     }
 
@@ -106,7 +106,7 @@ impl RawContext {
                     Ok(GidType::Other(content.trim().to_string()))
                 }
             }
-            Err(err) => Err(Error::IBQueryGidTypeFail(err)),
+            Err(err) => Err(Error::new(ErrorKind::IBQueryGidTypeFail, err.to_string())),
         }
     }
 }
@@ -133,6 +133,7 @@ pub struct DeviceInfo {
     pub ports: Vec<Port>,
 }
 
+/// Represents an RDMA device.
 #[allow(unused)]
 pub struct Device {
     protection_domain: RawProtectionDomain,
@@ -172,7 +173,7 @@ impl Device {
         let context = RawContext(unsafe {
             let context = verbs::ibv_open_device(device);
             if context.is_null() {
-                return Err(Error::IBOpenDeviceFail(std::io::Error::last_os_error()));
+                return Err(ErrorKind::IBOpenDeviceFail.with_errno());
             }
             context
         });
@@ -180,7 +181,7 @@ impl Device {
         let protection_domain = RawProtectionDomain(unsafe {
             let protection_domain = verbs::ibv_alloc_pd(context.0);
             if protection_domain.is_null() {
-                return Err(Error::IBAllocPDFail(std::io::Error::last_os_error()));
+                return Err(ErrorKind::IBAllocPDFail.with_errno());
             }
             protection_domain
         });
@@ -282,14 +283,17 @@ impl std::fmt::Debug for Device {
     }
 }
 
+/// A collection of RDMA devices available on the system.
 #[derive(Clone)]
 pub struct Devices(Arc<Vec<Device>>);
 
 impl Devices {
+    /// Returns a list of available RDMA devices.
     pub fn availables() -> Result<Devices> {
         Self::open(&Default::default())
     }
 
+    /// Opens RDMA devices based on the provided configuration.
     pub fn open(config: &DeviceConfig) -> Result<Devices> {
         let list = Arc::new(RawDeviceList::available()?);
         let mut devices = Vec::with_capacity(list.len());
@@ -309,7 +313,7 @@ impl Devices {
             devices.push(device);
         }
         if devices.is_empty() {
-            Err(Error::IBDeviceNotFound)
+            Err(ErrorKind::IBDeviceNotFound.into())
         } else {
             Ok(Devices(Arc::new(devices)))
         }

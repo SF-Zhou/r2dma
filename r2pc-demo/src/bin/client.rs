@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2pc::{Client, ConnectionPool, Context, Transport};
+use r2pc::*;
 use r2pc_demo::{EchoService, GreetService, Request};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -33,9 +33,12 @@ pub struct Args {
 async fn stress_test(args: Args) {
     let counter = Arc::new(AtomicU64::new(0));
     let start_time = std::time::Instant::now();
-    let pool = Arc::new(ConnectionPool::new(64));
-    let tr = Transport::new_sync(pool, args.addr);
-    let ctx = Context::new(tr);
+    let core_state = Arc::new(CoreState::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let ctx = Context {
+        socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
+        core_state,
+    };
     let mut tasks = vec![];
     for _ in 0..args.coroutines {
         let value = Request(args.value.clone());
@@ -47,7 +50,9 @@ async fn stress_test(args: Args) {
                 .as_secs()
                 < args.secs
             {
-                let client = Client::default();
+                let client = Client {
+                    timeout: std::time::Duration::from_secs(5),
+                };
                 for _ in 0..4096 {
                     let rsp = client.echo(&ctx, &value).await;
                     assert!(rsp.is_ok());
@@ -73,6 +78,9 @@ async fn stress_test(args: Args) {
     }
 }
 
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -84,9 +92,12 @@ async fn main() {
     if args.stress {
         stress_test(args).await;
     } else {
-        let pool = Arc::new(ConnectionPool::new(4));
-        let tr = Transport::new_sync(pool, args.addr);
-        let ctx = Context::new(tr);
+        let core_state = Arc::new(CoreState::default());
+        let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+        let ctx = Context {
+            socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
+            core_state,
+        };
         let client = Client::default();
         let rsp = client.echo(&ctx, &Request(args.value.clone())).await;
         tracing::info!("echo rsp: {:?}", rsp);

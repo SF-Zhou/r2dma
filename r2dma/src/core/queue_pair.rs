@@ -1,5 +1,5 @@
 use super::*;
-use crate::{verbs, Error, Result};
+use crate::{verbs, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 use std::{ffi::c_int, ops::Deref, sync::Arc};
 
@@ -19,6 +19,8 @@ impl Drop for RawQueuePair {
 unsafe impl Send for RawQueuePair {}
 unsafe impl Sync for RawQueuePair {}
 
+/// Represents a queue pair in RDMA communication.
+/// A queue pair consists of a send queue and a receive queue, which are used to send and receive messages.
 pub struct QueuePair {
     queue_pair: RawQueuePair,
     _comp_queues: Arc<CompQueues>,
@@ -44,7 +46,7 @@ impl QueuePair {
         };
         let ptr = unsafe { verbs::ibv_create_qp(devices[device_index].pd_ptr(), &mut attr) };
         if ptr.is_null() {
-            return Err(Error::IBCreateQueuePairFail(std::io::Error::last_os_error()));
+            return Err(ErrorKind::IBCreateQueuePairFail.with_errno());
         }
         Ok(Self {
             queue_pair: RawQueuePair(ptr),
@@ -54,7 +56,11 @@ impl QueuePair {
         })
     }
 
-    pub fn init(&mut self, port_num: u8, pkey_index: u16) -> Result<()> {
+    pub fn device(&self) -> &Device {
+        &self._devices[self._device_index]
+    }
+
+    pub fn init(&self, port_num: u8, pkey_index: u16) -> Result<()> {
         let mut attr = verbs::ibv_qp_attr {
             qp_state: verbs::ibv_qp_state::IBV_QPS_INIT,
             pkey_index,
@@ -166,7 +172,7 @@ impl QueuePair {
         if ret == 0_i32 {
             Ok(())
         } else {
-            Err(Error::IBModifyQueuePairFail(std::io::Error::last_os_error()))
+            Err(ErrorKind::IBModifyQueuePairFail.with_errno())
         }
     }
 }
@@ -207,7 +213,7 @@ mod tests {
             max_recv_sge: 1,
             max_inline_data: 0,
         };
-        let mut queue_pair = QueuePair::create(&devices, 0, &comp_queues, cap).unwrap();
+        let queue_pair = QueuePair::create(&devices, 0, &comp_queues, cap).unwrap();
         println!("{:#?}", queue_pair);
 
         queue_pair.init(1, 0).unwrap();
@@ -229,13 +235,15 @@ mod tests {
         };
 
         let comp_queues_a = CompQueues::create(&devices, 128).unwrap();
-        let mut queue_pair_a = QueuePair::create(&devices, 0, &comp_queues_a, cap).unwrap();
+        let queue_pair_a = QueuePair::create(&devices, 0, &comp_queues_a, cap).unwrap();
+        let socket_a = Socket::create(Arc::new(queue_pair_a));
         let comp_queues_b = CompQueues::create(&devices, 128).unwrap();
-        let mut queue_pair_b = QueuePair::create(&devices, 0, &comp_queues_b, cap).unwrap();
+        let queue_pair_b = QueuePair::create(&devices, 0, &comp_queues_b, cap).unwrap();
+        let socket_b = Socket::create(Arc::new(queue_pair_b));
 
         // 3. init all queue pairs.
-        queue_pair_a.init(1, 0).unwrap();
-        queue_pair_b.init(1, 0).unwrap();
+        socket_a.init(socket_b.endpoint()).unwrap();
+        socket_b.init(socket_a.endpoint()).unwrap();
 
         // 4. post recv wr.
         const LEN: usize = 1 << 20;
@@ -243,60 +251,19 @@ mod tests {
 
         let mut recv_buf = buffer_pool.allocate().unwrap();
         recv_buf.fill(0);
-        let mut recv_sge = verbs::ibv_sge {
-            addr: recv_buf.as_ptr() as _,
-            length: recv_buf.len() as _,
-            lkey: recv_buf.lkey(&devices[0]),
-        };
-        let mut recv_wr = verbs::ibv_recv_wr {
-            wr_id: 1,
-            sg_list: &mut recv_sge as *mut _,
-            num_sge: 1,
-            next: std::ptr::null_mut(),
-        };
-        assert_eq!(queue_pair_b.post_recv(&mut recv_wr), 0);
+        let recv_slice: &[u8] = unsafe { std::mem::transmute(&*recv_buf) };
+        socket_b.post_recv(1, recv_buf).unwrap();
 
-        // 5. connect two queue pairs.
-        let device = &devices[0];
-        let gid = device.info().ports[0].gids[1].1;
-        queue_pair_a
-            .ready_to_recv(&Endpoint {
-                qp_num: queue_pair_b.qp_num,
-                lid: 0,
-                gid,
-            })
-            .unwrap();
-        queue_pair_b
-            .ready_to_recv(&Endpoint {
-                qp_num: queue_pair_a.qp_num,
-                lid: 0,
-                gid,
-            })
-            .unwrap();
-
-        queue_pair_a.ready_to_send().unwrap();
-        queue_pair_b.ready_to_send().unwrap();
-
+        // 5. try to poll cq.
         let mut wcs_b = vec![verbs::ibv_wc::default(); 128];
         assert!(comp_queues_b.poll_cq(&mut wcs_b).unwrap().is_empty());
 
         // 6. post send wr.
         let mut send_buf = buffer_pool.allocate().unwrap();
         send_buf.fill(1);
-        let mut send_sge = verbs::ibv_sge {
-            addr: send_buf.as_ptr() as _,
-            length: send_buf.len() as _,
-            lkey: recv_buf.lkey(&devices[0]),
-        };
-        let mut send_wr = verbs::ibv_send_wr {
-            wr_id: 2,
-            sg_list: &mut send_sge as *mut _,
-            num_sge: 1,
-            opcode: verbs::ibv_wr_opcode::IBV_WR_SEND,
-            send_flags: verbs::ibv_send_flags::IBV_SEND_SIGNALED.0,
-            ..Default::default()
-        };
-        assert_eq!(queue_pair_a.post_send(&mut send_wr), 0);
+        let send_slice: &[u8] = unsafe { std::mem::transmute(&*send_buf) };
+        let send_len = send_buf.len();
+        socket_a.post_send(2, send_buf).unwrap();
 
         // 7. poll cq.
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -304,15 +271,15 @@ mod tests {
         let comp_a = comp_queues_a.poll_cq(&mut wcs_a).unwrap();
         assert_eq!(comp_a.len(), 1);
         assert_eq!(comp_a[0].wr_id, 2);
-        assert_eq!(comp_a[0].qp_num, queue_pair_a.qp_num);
+        assert_eq!(comp_a[0].qp_num, socket_a.qp_num());
         assert_eq!(comp_a[0].status, verbs::ibv_wc_status::IBV_WC_SUCCESS);
 
         let comp_b = comp_queues_b.poll_cq(&mut wcs_b).unwrap();
         assert_eq!(comp_b.len(), 1);
         assert_eq!(comp_b[0].wr_id, 1);
-        assert_eq!(comp_b[0].qp_num, queue_pair_b.qp_num);
+        assert_eq!(comp_b[0].qp_num, socket_b.qp_num());
         assert_eq!(comp_b[0].status, verbs::ibv_wc_status::IBV_WC_SUCCESS);
-        assert_eq!(comp_b[0].byte_len, send_buf.len() as u32);
-        assert_eq!(recv_buf[..send_buf.len()], send_buf[..]);
+        assert_eq!(comp_b[0].byte_len, send_len as u32);
+        assert!(&recv_slice[..send_len] == send_slice);
     }
 }

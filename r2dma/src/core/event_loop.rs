@@ -15,9 +15,10 @@ pub struct EventLoop {
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
+/// An event loop that continuously polls for completion events from the RDMA devices.
+/// It runs in a separate thread and processes completion events until stopped.
 impl EventLoop {
-    pub fn create(devices: &Devices) -> Result<Self> {
-        let max_cqe = 32;
+    pub fn create(devices: &Devices, max_cqe: u32) -> Result<Self> {
         let comp_queues = CompQueues::create(devices, max_cqe)?;
         let state = Arc::new(EventLoopState {
             stopping: AtomicBool::new(false),
@@ -57,12 +58,21 @@ impl EventLoop {
 
             // handle events.
             for wc in wcs {
-                tracing::info!(
-                    "wc is id {}, result {}, status {:?}",
-                    wc.wr_id,
-                    wc.byte_len,
-                    wc.status
-                );
+                if wc.is_recv() {
+                    tracing::info!(
+                        "wc is recv id {}, result {}, status {:?}",
+                        wc.wr_id,
+                        wc.byte_len,
+                        wc.status
+                    );
+                } else {
+                    tracing::info!(
+                        "wc is send id {}, result {}, status {:?}",
+                        wc.wr_id,
+                        wc.byte_len,
+                        wc.status
+                    );
+                }
             }
         }
     }
@@ -81,7 +91,7 @@ mod tests {
     #[test]
     fn test_event_loop() {
         let devices = Devices::availables().unwrap();
-        let event_loop = EventLoop::create(&devices).unwrap();
+        let event_loop = EventLoop::create(&devices, 32).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(200));
         drop(event_loop);
     }

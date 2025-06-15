@@ -1,41 +1,104 @@
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("alloc memory failed")]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ErrorKind {
     AllocMemoryFailed,
-    #[error("ib get deivce list fail: {0}")]
-    IBGetDeviceListFail(#[source] std::io::Error),
-    #[error("ib device is not found")]
+    IBGetDeviceListFail,
     IBDeviceNotFound,
-    #[error("ib open device fail: {0}")]
-    IBOpenDeviceFail(#[source] std::io::Error),
-    #[error("ib query device fail: {0}")]
-    IBQueryDeviceFail(#[source] std::io::Error),
-    #[error("ib query gid fail: {0}")]
-    IBQueryGidFail(#[source] std::io::Error),
-    #[error("ib query gid type fail: {0}")]
-    IBQueryGidTypeFail(#[source] std::io::Error),
-    #[error("ib query port fail: {0}")]
-    IBQueryPortFail(#[source] std::io::Error),
-    #[error("ib allocate protection domain fail: {0}")]
-    IBAllocPDFail(#[source] std::io::Error),
-    #[error("ib create completion channel fail: {0}")]
-    IBCreateCompChannelFail(#[source] std::io::Error),
-    #[error("ib set completion channel non-block fail: {0}")]
-    IBSetCompChannelNonBlockFail(#[source] std::io::Error),
-    #[error("ib get comp queue event fail: {0}")]
-    IBGetCompQueueEventFail(#[source] std::io::Error),
-    #[error("ib create comp queue fail: {0}")]
-    IBCreateCompQueueFail(#[source] std::io::Error),
-    #[error("ib req notify comp queue fail: {0}")]
-    IBReqNotifyCompQueueFail(#[source] std::io::Error),
-    #[error("ib poll comp queue fail: {0}")]
-    IBPollCompQueueFail(#[source] std::io::Error),
-    #[error("ib register memory region fail: {0}")]
-    IBRegMemoryRegionFail(#[source] std::io::Error),
-    #[error("ib create queue pair fail: {0}")]
-    IBCreateQueuePairFail(#[source] std::io::Error),
-    #[error("ib modify queue pair fail: {0}")]
-    IBModifyQueuePairFail(#[source] std::io::Error),
+    IBOpenDeviceFail,
+    IBQueryDeviceFail,
+    IBQueryGidFail,
+    IBQueryGidTypeFail,
+    IBQueryPortFail,
+    IBAllocPDFail,
+    IBCreateCompChannelFail,
+    IBSetCompChannelNonBlockFail,
+    IBGetCompQueueEventFail,
+    IBCreateCompQueueFail,
+    IBReqNotifyCompQueueFail,
+    IBPollCompQueueFail,
+    IBRegMemoryRegionFail,
+    IBCreateQueuePairFail,
+    IBModifyQueuePairFail,
+    IBPostRecvFailed,
+    IBPostSendFailed,
+    #[serde(untagged)]
+    Unknown(String),
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Error {
+    pub kind: ErrorKind,
+    pub msg: Option<String>,
+}
+
+impl ErrorKind {
+    pub fn with_errno(self) -> Error {
+        Error::new(self, std::io::Error::last_os_error().to_string())
+    }
+}
+
+impl Error {
+    pub fn new(kind: ErrorKind, msg: String) -> Self {
+        Self {
+            kind,
+            msg: Some(msg),
+        }
+    }
+}
+
+impl From<ErrorKind> for Error {
+    fn from(kind: ErrorKind) -> Self {
+        Self { kind, msg: None }
+    }
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.msg {
+            Some(msg) => write!(f, "{:?}: {}", self.kind, msg),
+            None => write!(f, "{:?}", self.kind),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error() {
+        let err = Error::new(
+            ErrorKind::IBGetDeviceListFail,
+            "Failed to get device list".to_string(),
+        );
+        let json = serde_json::to_value(err).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "kind": "IBGetDeviceListFail",
+                "msg": "Failed to get device list"
+            })
+        );
+
+        let json = serde_json::json!({
+            "kind": "NewKindError",
+            "msg": "new kind error message",
+        });
+        let err = serde_json::from_value::<Error>(json).unwrap();
+        assert_eq!(
+            err,
+            Error {
+                kind: ErrorKind::Unknown("NewKindError".to_string()),
+                msg: Some("new kind error message".to_string())
+            }
+        );
+
+        let err: Error = ErrorKind::IBGetDeviceListFail.into();
+        assert_eq!(err.to_string(), "IBGetDeviceListFail");
+    }
+}
