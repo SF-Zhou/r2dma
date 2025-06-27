@@ -23,7 +23,7 @@ impl SocketGetter {
 #[derive(Clone, Debug)]
 pub struct Context {
     pub socket_getter: SocketGetter,
-    pub core_state: Arc<CoreState>,
+    pub state: Arc<State>,
 }
 
 impl Context {

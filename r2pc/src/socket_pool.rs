@@ -13,13 +13,13 @@ use tokio::{
 use super::*;
 
 pub trait SocketPool {
-    fn create(core_state: Arc<CoreState>) -> Self;
+    fn create(state: Arc<State>) -> Self;
 
     async fn acquire(self: &Arc<Self>, addr: &SocketAddr) -> Result<Socket>;
 }
 
 pub struct TcpSocketPool {
-    core_state: Arc<CoreState>,
+    state: Arc<State>,
     socket_map: dashmap::DashMap<SocketAddr, Socket, RandomState>,
 }
 
@@ -88,7 +88,7 @@ impl TcpSocketPool {
             match Self::parse_message(&mut buffer)? {
                 Some(bytes) => {
                     let msg = Msg::deserialize_meta(bytes.into())?;
-                    self.core_state.handle_recv(send_socket.clone(), msg)?;
+                    self.state.handle_recv(send_socket.clone(), msg)?;
                 }
                 None => {
                     let n = recv_stream
@@ -150,9 +150,9 @@ impl TcpSocketPool {
 }
 
 impl SocketPool for TcpSocketPool {
-    fn create(core_state: Arc<CoreState>) -> Self {
+    fn create(state: Arc<State>) -> Self {
         TcpSocketPool {
-            core_state,
+            state,
             socket_map: Default::default(),
         }
     }

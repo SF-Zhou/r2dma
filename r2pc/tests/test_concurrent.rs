@@ -46,11 +46,11 @@ async fn test_concurrent_call() {
     let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
 
-    let core_state = Arc::new(CoreState::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let state = Arc::new(State::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
     let ctx = Context {
         socket_getter: SocketGetter::FromPool(socket_pool, addr),
-        core_state,
+        state,
     };
 
     const N: usize = 32;

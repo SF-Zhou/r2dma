@@ -33,11 +33,11 @@ pub struct Args {
 async fn stress_test(args: Args) {
     let counter = Arc::new(AtomicU64::new(0));
     let start_time = std::time::Instant::now();
-    let core_state = Arc::new(CoreState::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let state = Arc::new(State::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
     let ctx = Context {
         socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
-        core_state,
+        state,
     };
     let mut tasks = vec![];
     for _ in 0..args.coroutines {
@@ -92,11 +92,11 @@ async fn main() {
     if args.stress {
         stress_test(args).await;
     } else {
-        let core_state = Arc::new(CoreState::default());
-        let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+        let state = Arc::new(State::default());
+        let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
         let ctx = Context {
             socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
-            core_state,
+            state,
         };
         let client = Client::default();
         let rsp = client.echo(&ctx, &Request(args.value.clone())).await;

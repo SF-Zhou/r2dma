@@ -9,14 +9,8 @@ pub use msg::{Msg, MsgFlags, MsgMeta};
 mod socket;
 pub use socket::{Socket, TcpSocket};
 
-mod msg_waiter;
-pub use msg_waiter::MsgWaiter;
-
-mod services;
-pub use services::{Method, Services};
-
-mod core_state;
-pub use core_state::CoreState;
+mod state;
+pub use state::{Method, MsgWaiter, Services, State};
 
 mod socket_pool;
 pub use socket_pool::{SocketPool, TcpSocketPool};

@@ -1,13 +1,19 @@
-use super::*;
+mod msg_waiter;
+pub use msg_waiter::MsgWaiter;
+
+mod services;
+pub use services::{Method, Services};
+
+use crate::*;
 use std::sync::Arc;
 
 #[derive(Default, Debug)]
-pub struct CoreState {
+pub struct State {
     pub services: Services,
     pub msg_waiter: MsgWaiter,
 }
 
-impl CoreState {
+impl State {
     pub fn new(services: Services) -> Arc<Self> {
         Arc::new(Self {
             services,
@@ -19,7 +25,7 @@ impl CoreState {
         if msg.meta.flags.contains(MsgFlags::IsReq) {
             let ctx = Context {
                 socket_getter: SocketGetter::Single(socket),
-                core_state: self.clone(),
+                state: self.clone(),
             };
             self.services.invoke(ctx, msg);
         } else {

@@ -28,7 +28,7 @@ impl Client {
     {
         let socket = ctx.get_socket().await?;
 
-        let (msg_id, rx) = ctx.core_state.msg_waiter.alloc();
+        let (msg_id, rx) = ctx.state.msg_waiter.alloc();
         let meta = MsgMeta {
             msg_id,
             flags: MsgFlags::IsReq,
@@ -42,7 +42,7 @@ impl Client {
                 .map_err(|e| Error::new(ErrorKind::WaitMsgFailed, e.to_string()))?
                 .and_then(|msg| msg.deserialize_payload())?,
             Err(e) => {
-                ctx.core_state.msg_waiter.timeout(msg_id);
+                ctx.state.msg_waiter.timeout(msg_id);
                 Err(Error::new(ErrorKind::Timeout, e.to_string()).into())
             }
         }

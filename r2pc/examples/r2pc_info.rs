@@ -18,11 +18,11 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let core_state = Arc::new(CoreState::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
+    let state = Arc::new(State::default());
+    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
     let ctx = Context {
         socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
-        core_state,
+        state,
     };
 
     let client = Client::default();

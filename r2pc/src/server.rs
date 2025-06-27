@@ -8,8 +8,8 @@ pub struct Server {
 
 impl Server {
     pub fn create(services: Services) -> Self {
-        let core_state = CoreState::new(services);
-        let socket_pool = Arc::new(TcpSocketPool::create(core_state));
+        let state = State::new(services);
+        let socket_pool = Arc::new(TcpSocketPool::create(state));
 
         Self {
             stop_token: tokio_util::sync::CancellationToken::new(),
