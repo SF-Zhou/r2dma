@@ -30,7 +30,7 @@ pub use server::Server;
 mod client;
 pub use client::Client;
 
-mod core_service;
-pub use core_service::*;
+mod core_services;
+pub use core_services::*;
 
 pub use r2pc_macro::service;
