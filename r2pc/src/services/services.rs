@@ -13,8 +13,8 @@ impl Default for Services {
         let mut this = Self {
             methods: Default::default(),
         };
-        let core_service = Arc::new(CoreServiceImpl);
-        this.add_methods(InfoService::rpc_export(core_service.clone()));
+        let dummy = Arc::new(());
+        this.add_methods(InfoService::rpc_export(dummy.clone()));
         this
     }
 }

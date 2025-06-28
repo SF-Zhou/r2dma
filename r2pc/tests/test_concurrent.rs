@@ -47,11 +47,7 @@ async fn test_concurrent_call() {
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
 
     let state = Arc::new(State::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
-    let ctx = Context {
-        socket_getter: SocketGetter::FromPool(socket_pool, addr),
-        state,
-    };
+    let ctx = state.client_ctx(addr);
 
     const N: usize = 32;
     const M: usize = 4096;

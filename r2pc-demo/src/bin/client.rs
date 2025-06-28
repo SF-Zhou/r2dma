@@ -34,11 +34,7 @@ async fn stress_test(args: Args) {
     let counter = Arc::new(AtomicU64::new(0));
     let start_time = std::time::Instant::now();
     let state = Arc::new(State::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
-    let ctx = Context {
-        socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
-        state,
-    };
+    let ctx = state.client_ctx(args.addr);
     let mut tasks = vec![];
     for _ in 0..args.coroutines {
         let value = Request(args.value.clone());
@@ -93,11 +89,7 @@ async fn main() {
         stress_test(args).await;
     } else {
         let state = Arc::new(State::default());
-        let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
-        let ctx = Context {
-            socket_getter: SocketGetter::FromPool(socket_pool, args.addr),
-            state,
-        };
+        let ctx = state.client_ctx(args.addr);
         let client = Client::default();
         let rsp = client.echo(&ctx, &Request(args.value.clone())).await;
         tracing::info!("echo rsp: {:?}", rsp);

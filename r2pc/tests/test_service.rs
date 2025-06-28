@@ -90,11 +90,7 @@ async fn test_demo_service() {
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
 
     let state = Arc::new(State::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
-    let ctx = Context {
-        socket_getter: SocketGetter::FromPool(socket_pool, addr),
-        state,
-    };
+    let ctx = state.client_ctx(addr);
 
     let client = Client::default();
     let req = FooReq { data: "foo".into() };
@@ -137,11 +133,7 @@ fn test_demo_service_sync() {
     let (addr, listen_handle) = runtime.block_on(server.clone().listen(addr)).unwrap();
 
     let state = Arc::new(State::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(state.clone()));
-    let ctx = Context {
-        socket_getter: SocketGetter::FromPool(socket_pool, addr),
-        state,
-    };
+    let ctx = state.client_ctx(addr);
 
     let req = FooReq { data: "foo".into() };
     let current = tokio::runtime::Builder::new_current_thread()

@@ -1,16 +1,12 @@
-mod msg_waiter;
-pub use msg_waiter::MsgWaiter;
-
-mod services;
-pub use services::{Method, Services};
-
+use super::*;
 use crate::*;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 #[derive(Default, Debug)]
 pub struct State {
     pub services: Services,
     pub msg_waiter: MsgWaiter,
+    pub socket_pool: TcpSocketPool,
 }
 
 impl State {
@@ -18,15 +14,17 @@ impl State {
         Arc::new(Self {
             services,
             msg_waiter: Default::default(),
+            socket_pool: Default::default(),
         })
+    }
+
+    pub fn client_ctx(self: &Arc<Self>, peer_addr: SocketAddr) -> Context {
+        Context::client_ctx(self, peer_addr)
     }
 
     pub(crate) fn handle_recv(self: &Arc<Self>, socket: Socket, msg: Msg) -> Result<()> {
         if msg.meta.flags.contains(MsgFlags::IsReq) {
-            let ctx = Context {
-                socket_getter: SocketGetter::Single(socket),
-                state: self.clone(),
-            };
+            let ctx = Context::server_ctx(self, socket);
             self.services.invoke(ctx, msg);
         } else {
             self.msg_waiter.post(msg.meta.msg_id, Ok(msg));
