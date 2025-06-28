@@ -7,6 +7,6 @@ pub trait InfoService {
 
 impl InfoService for () {
     async fn list_methods(&self, ctx: &Context, _: &()) -> Result<Vec<String>> {
-        Ok(ctx.state.services.method_names().cloned().collect())
+        Ok(ctx.state.service_manager.method_names().cloned().collect())
     }
 }

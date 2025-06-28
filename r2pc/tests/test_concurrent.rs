@@ -39,9 +39,9 @@ async fn test_concurrent_call() {
         .init();
 
     let demo = Arc::new(DemoImpl::default());
-    let mut services = Services::default();
-    services.add_methods(demo.clone().rpc_export());
-    let server = Server::create(services);
+    let mut service_manager = ServiceManager::default();
+    service_manager.add_methods(demo.clone().rpc_export());
+    let server = Server::create(service_manager);
     let server = Arc::new(server);
     let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();

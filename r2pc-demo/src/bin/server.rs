@@ -1,5 +1,5 @@
 use clap::Parser;
-use r2pc::{Context, Result, Server, Services};
+use r2pc::{Context, Result, Server, ServiceManager};
 use r2pc_demo::{EchoService, GreetService, Request};
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -45,10 +45,10 @@ async fn main() {
     let args = Args::parse();
 
     let demo = Arc::new(DemoImpl::default());
-    let mut services = Services::default();
-    services.add_methods(EchoService::rpc_export(demo.clone()));
-    services.add_methods(GreetService::rpc_export(demo.clone()));
-    let server = Server::create(services);
+    let mut service_manager = ServiceManager::default();
+    service_manager.add_methods(EchoService::rpc_export(demo.clone()));
+    service_manager.add_methods(GreetService::rpc_export(demo.clone()));
+    let server = Server::create(service_manager);
 
     let server = Arc::new(server);
     let (addr, listen_handle) = server.listen(args.addr).await.unwrap();

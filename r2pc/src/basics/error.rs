@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ErrorKind {
     Timeout,
+    InvalidArgument,
     SerializeFailed,
     DeserializeFailed,
     TcpConnectFailed,

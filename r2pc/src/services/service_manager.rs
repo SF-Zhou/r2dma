@@ -4,11 +4,11 @@ use std::{collections::HashMap, sync::Arc};
 
 pub type Method = Box<dyn Fn(Context, Msg) -> Result<()> + Send + Sync>;
 
-pub struct Services {
+pub struct ServiceManager {
     methods: HashMap<String, Method, RandomState>,
 }
 
-impl Default for Services {
+impl Default for ServiceManager {
     fn default() -> Self {
         let mut this = Self {
             methods: Default::default(),
@@ -19,7 +19,7 @@ impl Default for Services {
     }
 }
 
-impl Services {
+impl ServiceManager {
     pub fn add_methods(&mut self, methods: HashMap<String, Method>) {
         self.methods.extend(methods);
     }
@@ -32,12 +32,17 @@ impl Services {
         if let Some(func) = self.methods.get(&msg.meta.method) {
             let _ = func(ctx, msg);
         } else {
-            todo!("Method not found: {}", msg.meta.method);
+            tokio::spawn(async move {
+                let m = format!("method not found: {}", msg.meta.method);
+                tracing::error!(m);
+                ctx.send_rsp::<(), Error>(msg.meta, Err(Error::new(ErrorKind::InvalidArgument, m)))
+                    .await;
+            });
         }
     }
 }
 
-impl std::fmt::Debug for Services {
+impl std::fmt::Debug for ServiceManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServiceManager")
             .field("methods", &self.methods.keys())
@@ -51,7 +56,7 @@ mod tests {
 
     #[test]
     fn test_services() {
-        let manager = Services::default();
+        let manager = ServiceManager::default();
         assert!(
             manager
                 .method_names()

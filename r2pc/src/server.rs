@@ -7,8 +7,8 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn create(services: Services) -> Self {
-        let state = State::new(services);
+    pub fn create(service_manager: ServiceManager) -> Self {
+        let state = State::new(service_manager);
 
         Self {
             state,
@@ -62,9 +62,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_server_creation() {
-        let mut services = Services::default();
-        services.add_methods(InfoService::rpc_export(Arc::new(())));
-        let server = Server::create(services);
+        let mut service_manager = ServiceManager::default();
+        service_manager.add_methods(InfoService::rpc_export(Arc::new(())));
+        let server = Server::create(service_manager);
         let server = Arc::new(server);
 
         let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();

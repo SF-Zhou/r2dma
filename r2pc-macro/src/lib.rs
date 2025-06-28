@@ -60,9 +60,14 @@ pub fn service(_attr: TokenStream, input: TokenStream) -> TokenStream {
                     Box::new(move |ctx, mut msg| {
                         let this = this.clone();
                         tokio::spawn(async move {
-                            if let Ok(req) = msg.deserialize_payload() {
-                                let result = this.#method_ident(&ctx, &req).await;
-                                ctx.send_rsp(msg.meta, result).await;
+                            match msg.deserialize_payload() {
+                                Ok(req) => {
+                                    let result = this.#method_ident(&ctx, &req).await;
+                                    ctx.send_rsp(msg.meta, result).await;
+                                }
+                                Err(e) => {
+                                    ctx.send_rsp::<(), #krate::Error>(msg.meta, Err(e)).await;
+                                }
                             }
                         });
                         Ok(())

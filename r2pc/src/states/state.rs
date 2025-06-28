@@ -4,15 +4,15 @@ use std::{net::SocketAddr, sync::Arc};
 
 #[derive(Default, Debug)]
 pub struct State {
-    pub services: Services,
+    pub service_manager: ServiceManager,
     pub msg_waiter: MsgWaiter,
     pub socket_pool: TcpSocketPool,
 }
 
 impl State {
-    pub fn new(services: Services) -> Arc<Self> {
+    pub fn new(service_manager: ServiceManager) -> Arc<Self> {
         Arc::new(Self {
-            services,
+            service_manager,
             msg_waiter: Default::default(),
             socket_pool: Default::default(),
         })
@@ -25,7 +25,7 @@ impl State {
     pub(crate) fn handle_recv(self: &Arc<Self>, socket: Socket, msg: Msg) -> Result<()> {
         if msg.meta.flags.contains(MsgFlags::IsReq) {
             let ctx = Context::server_ctx(self, socket);
-            self.services.invoke(ctx, msg);
+            self.service_manager.invoke(ctx, msg);
         } else {
             self.msg_waiter.post(msg.meta.msg_id, Ok(msg));
         }
