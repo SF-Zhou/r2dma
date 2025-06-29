@@ -1,5 +1,5 @@
 use crate::*;
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use foldhash::fast::RandomState;
 use std::{io::IoSlice, net::SocketAddr, sync::Arc};
 use tokio::{
@@ -106,28 +106,21 @@ impl TcpSocketPool {
 
     async fn start_send_loop(
         mut send_stream: OwnedWriteHalf,
-        mut receiver: mpsc::Receiver<Msg>,
+        mut receiver: mpsc::Receiver<Bytes>,
     ) -> Result<()> {
         const LIMIT: usize = 64;
         let mut msgs = Vec::with_capacity(LIMIT);
         loop {
-            let mut headers = [[0u8; 8]; LIMIT];
-            let mut bufs = [IoSlice::new(&[]); LIMIT * 2];
+            let mut bufs = [IoSlice::new(&[]); LIMIT];
 
             let n = receiver.recv_many(&mut msgs, LIMIT).await;
             if n == 0 {
                 return Ok(());
             }
 
-            for (msg, h) in msgs.iter().zip(headers.iter_mut()) {
-                let header = (MSG_HEADER as u64) << 32 | (msg.as_slice().len() as u64);
-                *h = header.to_be_bytes();
-            }
             let mut offset = 0;
-            for (header, msg) in headers.iter().zip(&msgs) {
-                bufs[offset] = IoSlice::new(header);
-                offset += 1;
-                bufs[offset] = IoSlice::new(msg.as_slice());
+            for msg in &msgs {
+                bufs[offset] = IoSlice::new(msg);
                 offset += 1;
             }
 

@@ -46,19 +46,14 @@ impl Context {
         E: std::error::Error + From<crate::Error> + Serialize,
     {
         meta.flags.remove(MsgFlags::IsReq);
-        match Msg::serialize(meta, &rsp) {
-            Ok(bytes) => match &self.socket {
-                SocketWrapper::Single(socket) => {
-                    if let Err(e) = socket.send(bytes).await {
-                        tracing::error!("send rsp failed: {e}");
-                    }
+        match &self.socket {
+            SocketWrapper::Single(socket) => {
+                if let Err(e) = socket.send(meta, &rsp).await {
+                    tracing::error!("send rsp failed: {e}");
                 }
-                _ => {
-                    tracing::error!("send rsp failed: invalid socket");
-                }
-            },
-            Err(e) => {
-                tracing::error!("serialize rsp failed: {e}");
+            }
+            _ => {
+                tracing::error!("send rsp failed: invalid socket");
             }
         }
     }

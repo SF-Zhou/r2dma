@@ -34,8 +34,7 @@ impl Client {
             flags: MsgFlags::IsReq,
             method: method_name.into(),
         };
-        let msg = Msg::serialize(meta, req)?;
-        socket.send(msg).await?;
+        socket.send(meta, req).await?;
 
         match tokio::time::timeout(self.timeout, rx).await {
             Ok(r) => r

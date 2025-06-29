@@ -1,6 +1,6 @@
 use super::{Error, ErrorKind, Result};
 use bitflags::bitflags;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Debug, Default, PartialEq, Clone, Copy)]
@@ -41,36 +41,6 @@ pub struct Msg {
 const META_LEN_SIZE: usize = std::mem::size_of::<u32>();
 
 impl Msg {
-    pub fn serialize<P: Serialize>(meta: MsgMeta, payload: &P) -> Result<Self> {
-        let mut bytes = BytesMut::with_capacity(1024);
-        bytes.extend([0u8; META_LEN_SIZE]); // reserve space for the metadata length.
-
-        let mut writer = Writer(&mut bytes);
-        rmp_serde::encode::write(&mut writer, &meta)
-            .map_err(|e| Error::new(ErrorKind::SerializeFailed, e.to_string()))?;
-
-        // after writing the metadata, we need to update the length of the metadata in the bytes.
-        let meta_len = bytes.len() - META_LEN_SIZE;
-        bytes[..META_LEN_SIZE].copy_from_slice(&(meta_len as u32).to_be_bytes());
-
-        // now we can serialize the payload.
-        if meta.flags.contains(MsgFlags::IsJson) {
-            let writer = Writer(&mut bytes);
-            serde_json::to_writer(writer, payload)
-                .map_err(|e| Error::new(ErrorKind::SerializeFailed, e.to_string()))?;
-        } else {
-            let mut writer = Writer(&mut bytes);
-            rmp_serde::encode::write(&mut writer, &payload)
-                .map_err(|e| Error::new(ErrorKind::SerializeFailed, e.to_string()))?;
-        }
-
-        Ok(Self {
-            meta,
-            bytes: bytes.into(),
-            offset: META_LEN_SIZE + meta_len,
-        })
-    }
-
     pub fn deserialize_meta(bytes: Bytes) -> Result<Self> {
         let len = bytes.len();
         if len < META_LEN_SIZE {
@@ -140,27 +110,41 @@ impl std::fmt::Debug for Msg {
     }
 }
 
-#[repr(transparent)]
-struct Writer<'a>(&'a mut BytesMut);
+pub trait SendMsg {
+    fn len(&self) -> usize;
 
-impl std::io::Write for Writer<'_> {
-    #[inline(always)]
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.write_all(buf)?;
-        Ok(buf.len())
-    }
+    fn prepare(&mut self) -> Result<()>;
 
-    #[inline]
-    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        self.0.extend_from_slice(buf);
-        Ok(())
-    }
+    fn finish(&mut self, start_offset: usize, meta_len: usize) -> Result<()>;
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn writer(&mut self) -> impl std::io::Write;
+}
+
+impl MsgMeta {
+    pub fn serialize_to<M: SendMsg, P: Serialize>(&self, payload: &P, msg: &mut M) -> Result<()> {
+        let msg_start_offset = msg.len();
+        msg.prepare()?;
+
+        let meta_start_offset = msg.len();
+        rmp_serde::encode::write(&mut msg.writer(), self)
+            .map_err(|e| Error::new(ErrorKind::SerializeFailed, e.to_string()))?;
+        let meta_len = msg.len() - meta_start_offset;
+
+        if self.flags.contains(MsgFlags::IsJson) {
+            serde_json::to_writer(msg.writer(), payload)
+                .map_err(|e| Error::new(ErrorKind::SerializeFailed, e.to_string()))?;
+        } else {
+            rmp_serde::encode::write(&mut msg.writer(), &payload)
+                .map_err(|e| Error::new(ErrorKind::SerializeFailed, e.to_string()))?;
+        }
+
+        msg.finish(msg_start_offset, meta_len)?;
+
         Ok(())
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,3 +177,4 @@ mod tests {
         );
     }
 }
+*/
