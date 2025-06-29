@@ -5,8 +5,8 @@ pub trait InfoService {
     async fn list_methods(&self, ctx: &Context, v: &()) -> Result<Vec<String>>;
 }
 
-impl InfoService for super::CoreServiceImpl {
+impl InfoService for () {
     async fn list_methods(&self, ctx: &Context, _: &()) -> Result<Vec<String>> {
-        Ok(ctx.core_state.services.method_names().cloned().collect())
+        Ok(ctx.state.service_manager.method_names().cloned().collect())
     }
 }

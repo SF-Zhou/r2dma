@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ErrorKind {
     Timeout,
+    InvalidArgument,
     SerializeFailed,
     DeserializeFailed,
     TcpConnectFailed,
@@ -61,3 +62,15 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_kind() {
+        let kind = ErrorKind::Timeout;
+        let error: Error = kind.into();
+        println!("{:?}", error);
+    }
+}

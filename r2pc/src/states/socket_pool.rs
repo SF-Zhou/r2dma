@@ -1,3 +1,4 @@
+use crate::*;
 use bytes::{Buf, BytesMut};
 use foldhash::fast::RandomState;
 use std::{io::IoSlice, net::SocketAddr, sync::Arc};
@@ -10,16 +11,12 @@ use tokio::{
     sync::mpsc,
 };
 
-use super::*;
-
 pub trait SocketPool {
-    fn create(core_state: Arc<CoreState>) -> Self;
-
-    async fn acquire(self: &Arc<Self>, addr: &SocketAddr) -> Result<Socket>;
+    async fn acquire(&self, addr: &SocketAddr, state: &Arc<State>) -> Result<Socket>;
 }
 
+#[derive(Default)]
 pub struct TcpSocketPool {
-    core_state: Arc<CoreState>,
     socket_map: dashmap::DashMap<SocketAddr, Socket, RandomState>,
 }
 
@@ -28,22 +25,23 @@ const MAX_MSG_SIZE: usize = 64 << 20;
 
 impl TcpSocketPool {
     pub fn add_socket(
-        self: &Arc<Self>,
+        &self,
         addr: SocketAddr,
         stream: tokio::net::TcpStream,
+        state: &Arc<State>,
     ) -> Result<Socket> {
         let (recv_stream, send_stream) = stream.into_split();
-        let this = self.clone();
         let (sender, receiver) = mpsc::channel(1024);
         tokio::spawn(async move {
             if let Err(_e) = Self::start_send_loop(send_stream, receiver).await {}
         });
         let send_socket = Socket::TCP(TcpSocket::new(sender));
         let send_clone = send_socket.clone();
+        let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) = this.start_recv_loop(recv_stream, send_clone).await {
+            if let Err(e) = Self::start_recv_loop(recv_stream, send_clone, &state).await {
                 tracing::error!("recv loop for {addr} failed: {e}");
-                this.socket_map.remove(&addr);
+                state.socket_pool.socket_map.remove(&addr);
             }
         });
         Ok(send_socket)
@@ -79,16 +77,16 @@ impl TcpSocketPool {
     }
 
     async fn start_recv_loop(
-        &self,
         mut recv_stream: OwnedReadHalf,
         send_socket: Socket,
+        state: &Arc<State>,
     ) -> Result<()> {
         let mut buffer = bytes::BytesMut::with_capacity(1 << 20);
         loop {
             match Self::parse_message(&mut buffer)? {
                 Some(bytes) => {
                     let msg = Msg::deserialize_meta(bytes.into())?;
-                    self.core_state.handle_recv(send_socket.clone(), msg)?;
+                    state.handle_recv(send_socket.clone(), msg)?;
                 }
                 None => {
                     let n = recv_stream
@@ -150,14 +148,7 @@ impl TcpSocketPool {
 }
 
 impl SocketPool for TcpSocketPool {
-    fn create(core_state: Arc<CoreState>) -> Self {
-        TcpSocketPool {
-            core_state,
-            socket_map: Default::default(),
-        }
-    }
-
-    async fn acquire(self: &Arc<Self>, addr: &SocketAddr) -> Result<Socket> {
+    async fn acquire(&self, addr: &SocketAddr, state: &Arc<State>) -> Result<Socket> {
         // Check if the socket is already in the socket map.
         if let Some(socket) = self.socket_map.get(addr) {
             return Ok(socket.clone());
@@ -167,7 +158,7 @@ impl SocketPool for TcpSocketPool {
             .await
             .map_err(|e| Error::new(ErrorKind::TcpConnectFailed, e.to_string()))?;
 
-        let send_socket = self.add_socket(*addr, stream).map_err(|e| {
+        let send_socket = self.add_socket(*addr, stream, state).map_err(|e| {
             Error::new(
                 ErrorKind::TcpAddSocketFailed,
                 format!("failed to add socket for {addr}: {e}"),

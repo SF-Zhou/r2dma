@@ -2,18 +2,17 @@ use super::*;
 use std::{net::SocketAddr, sync::Arc};
 
 pub struct Server {
+    state: Arc<State>,
     stop_token: tokio_util::sync::CancellationToken,
-    socket_pool: Arc<TcpSocketPool>,
 }
 
 impl Server {
-    pub fn create(services: Services) -> Self {
-        let core_state = CoreState::new(services);
-        let socket_pool = Arc::new(TcpSocketPool::create(core_state));
+    pub fn create(service_manager: ServiceManager) -> Self {
+        let state = State::new(service_manager);
 
         Self {
+            state,
             stop_token: tokio_util::sync::CancellationToken::new(),
-            socket_pool,
         }
     }
 
@@ -36,7 +35,7 @@ impl Server {
                 }
                 _ = async {
                     while let Ok((stream, addr)) = listener.accept().await {
-                        if let Err(e) = self.socket_pool.add_socket(addr, stream) {
+                        if let Err(e) = self.state.socket_pool.add_socket(addr, stream, &self.state) {
                             tracing::error!("failed to add socket {addr}: {e}");
                         } else {
                             tracing::info!("accepted connection from {addr}");
@@ -63,9 +62,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_server_creation() {
-        let mut services = Services::default();
-        services.add_methods(Arc::new(CoreServiceImpl).rpc_export());
-        let server = Server::create(services);
+        let mut service_manager = ServiceManager::default();
+        service_manager.add_methods(InfoService::rpc_export(Arc::new(())));
+        let server = Server::create(service_manager);
         let server = Arc::new(server);
 
         let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();

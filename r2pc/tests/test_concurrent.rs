@@ -39,19 +39,15 @@ async fn test_concurrent_call() {
         .init();
 
     let demo = Arc::new(DemoImpl::default());
-    let mut services = Services::default();
-    services.add_methods(demo.clone().rpc_export());
-    let server = Server::create(services);
+    let mut service_manager = ServiceManager::default();
+    service_manager.add_methods(demo.clone().rpc_export());
+    let server = Server::create(service_manager);
     let server = Arc::new(server);
     let addr = std::net::SocketAddr::from_str("0.0.0.0:0").unwrap();
     let (addr, listen_handle) = server.clone().listen(addr).await.unwrap();
 
-    let core_state = Arc::new(CoreState::default());
-    let socket_pool = Arc::new(TcpSocketPool::create(core_state.clone()));
-    let ctx = Context {
-        socket_getter: SocketGetter::FromPool(socket_pool, addr),
-        core_state,
-    };
+    let state = Arc::new(State::default());
+    let ctx = state.client_ctx(addr);
 
     const N: usize = 32;
     const M: usize = 4096;
