@@ -65,6 +65,14 @@ async fn test_concurrent_call() {
     assert_eq!(client.foo(&ctx, &FooReq(0)).await, Ok(FooRsp(1)));
     assert_eq!(client.foo(&ctx, &FooReq(1)).await, Ok(FooRsp(3)));
 
+    let rsp = client
+        .list_methods(&ctx, &Default::default())
+        .await
+        .unwrap();
+    assert_eq!(rsp.len(), 2);
+
+    client.bar(&ctx, &BarReq(0)).await.unwrap_err();
+
     server.stop();
     let _ = listen_handle.await;
 }
